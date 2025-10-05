@@ -1,109 +1,136 @@
+import torch
+from copy import deepcopy
 from gymnasium.wrappers.vector import RecordEpisodeStatistics
-import numpy as np
-
+import os
 from env.mnk_game_env import create_mnk_env
-from alg.a2c import ActorCritic
-from selfplay.vector_self_play_wrapper import VectorSelfPlayWrapper, NNPolicy, RandomPolicy
+from selfplay.self_play_wrapper import NNPolicy, RandomPolicy
+from selfplay.vector_self_play_wrapper import VectorSelfPlayWrapper, VectorNNPolicy, BatchRandomPolicy
+from alg.a2c import A2CAgent, ActorCritic
+from validation import validate_episodes
 
 
-def create_wrapped_env():
-    env = create_mnk_env(3, 3, 3)
-    return env
+def save_benchmark_model(agent, name, step):
+    """Saves the agent's network as a new benchmark model."""
+    dirname, _ = os.path.split(os.path.abspath(__file__))
+    model_dir = os.path.join(dirname, "models", name)
+    os.makedirs(model_dir, exist_ok=True)
+    model_path = os.path.join(model_dir, f"benchmark_step_{step}.pt")
+    torch.save(agent.network.state_dict(), model_path)
+    print(f"Saved new benchmark model to {model_path}")
 
 
-def test_vector_self_play_wrapper():
-    print("Testing VectorSelfPlayWrapper...")
+def validate(mnk, n_episodes, agent, benchmark_policy, device):
+    validation_env = create_mnk_env(m=mnk[0], n=mnk[1], k=mnk[2])
+
+    agent.network.eval()
+
+    current_policy = NNPolicy(agent.network, device=device)
+    random_policy = RandomPolicy(validation_env.action_space(validation_env.possible_agents[0]))
+
+    # 1. Validate against a random opponent
+    random_stats = validate_episodes(
+        validation_env,
+        current_policy,
+        random_policy,
+        n_episodes,
+    )
+    print(f"Win rate vs random = {random_stats['win_rate']:.3f}/{random_stats['draw_rate']:.3f}")
+
+    # 2. Validate against the benchmark agent
+    benchmark_stats = validate_episodes(
+        validation_env,
+        current_policy,
+        benchmark_policy,
+        n_episodes,
+    )
+    print(f"Win rate vs benchmark = {benchmark_stats['win_rate']:.3f}/{benchmark_stats['draw_rate']:.3f}")
+
+    agent.network.train()  # Set model back to training mode
+    return (
+        {
+            "validation/vs_random/win_rate": random_stats["win_rate"],
+            "validation/vs_random/loss_rate": random_stats["loss_rate"],
+            "validation/vs_random/draw_rate": random_stats["draw_rate"],
+            "validation/vs_benchmark/win_rate": benchmark_stats["win_rate"],
+            "validation/vs_benchmark/loss_rate": benchmark_stats["loss_rate"],
+            "validation/vs_benchmark/draw_rate": benchmark_stats["draw_rate"],
+        }
+    )
+
+
+def main():
+    # Simple configuration
+    config = {
+        "mnk": (9, 9, 5),
+        "learning_rate": 8e-5,
+        "gamma": 0.99,
+        "batch_size": 64,
+        "n_steps": 1024,
+        "hidden_dim": 1024,
+        "training_iterations": 20,  # Reduced for testing
+        "validation_interval": 5,
+        "validation_episodes": 50,
+        "benchmark_update_threshold": 0.55,
+        "num_envs": 4,
+    }
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"Using device: {device}")
     
-    # Test with a random opponent policy
-    temp_env = create_mnk_env(3, 3, 3)
-    agent_name = temp_env.possible_agents[0]  # Get the first possible agent name
-    vec = VectorSelfPlayWrapper(RandomPolicy(temp_env.action_space(agent_name)), create_wrapped_env, 4)
+    mnk = config["mnk"]
+
+    # Create initial opponent (random policy)
+    base_env = create_mnk_env(mnk[0], mnk[1], mnk[2])
+    random_opponent = BatchRandomPolicy(base_env.action_space("black"))
     
-    print(f"Number of environments: {vec.num_envs}")
-    print(f"Observation space: {vec.observation_space}")
-    print(f"Action space: {vec.action_space}")
-    print(f"Single observation space: {vec.single_observation_space}")
-    print(f"Single action space: {vec.single_action_space}")
+    def env_fn():
+        return create_mnk_env(m=mnk[0], n=mnk[1], k=mnk[2])
+
+    # Create the vector environment
+    train_env = VectorSelfPlayWrapper(random_opponent, env_fn, n_envs=config["num_envs"])
+    train_env = RecordEpisodeStatistics(train_env)
+
+    # Create the agent
+    obs_shape = train_env.single_observation_space["observation"].shape
+    action_dim = train_env.single_action_space.n
+    network = ActorCritic(obs_shape, action_dim, hidden_dim=config["hidden_dim"])
+    agent = A2CAgent(obs_shape, action_dim, network, n_steps=config["n_steps"], 
+                     learning_rate=config["learning_rate"], gamma=config["gamma"], 
+                     batch_size=config["batch_size"], device=device, num_envs=config["num_envs"])
+
+    # Create benchmark agent for validation
+    benchmark_policy = NNPolicy(deepcopy(agent.network))
+
+    print("Starting training with VectorSelfPlayWrapper and dynamic opponent updates...")
     
-    # Test reset
-    print("\nTesting reset...")
-    obs, infos = vec.reset()
-    print(f"Observation type: {type(obs)}")
-    print(f"Observation keys: {list(obs.keys()) if isinstance(obs, dict) else 'Not a dict'}")
-    if isinstance(obs, dict):
-        print(f"'observation' shape: {obs['observation'].shape}")
-        print(f"'action_mask' shape: {obs['action_mask'].shape}")
-    # Print first element of batch to see individual observation structure
-    if isinstance(obs, dict):
-        first_obs = {key: obs[key][0] for key in obs.keys()}
-        print(f"First observation keys: {list(first_obs.keys())}")
-    print("Reset successful!")
-    
-    # Test step
-    print("\nTesting step method...")
-    obs_shape = vec.single_observation_space["observation"].shape
-    action_dim = vec.single_action_space.n
-    model = ActorCritic(obs_shape, action_dim)
-    
-    # Replace opponent with NNPolicy
-    vec.opponent = NNPolicy(model)
-    
-    # Generate random actions for the agent
-    actions = [vec.single_action_space.sample() for _ in range(vec.num_envs)]
-    print(f"Actions taken: {actions}")
-    
-    # Perform a step
-    next_obs, rewards, terminations, truncations, infos = vec.step(actions)
-    
-    print(f"Next observation type: {type(next_obs)}")
-    if isinstance(next_obs, dict):
-        print(f"'observation' shape: {next_obs['observation'].shape}")
-        print(f"'action_mask' shape: {next_obs['action_mask'].shape}")
-    print(f"Rewards: {rewards}")
-    print(f"Terminations: {terminations}")
-    print(f"Truncations: {truncations}")
-    print(f"Infos keys: {list(infos.keys()) if infos else 'None'}")
-    print("Step successful!")
-    
-    # Test multiple steps to ensure the environment works properly
-    print("\nTesting multiple steps...")
-    for step in range(5):
-        actions = [vec.single_action_space.sample() for _ in range(vec.num_envs)]
-        next_obs, rewards, terminations, truncations, infos = vec.step(actions)
-        print(f"Step {step + 1}: rewards={rewards}, terminations={terminations}")
-        
-        # Reset environments that are terminated
-        if np.any(terminations):
-            # Find terminated environments and reset them
-            terminated_indices = np.where(terminations)[0]
-            print(f"Terminated environments: {terminated_indices}")
-            # Reset the entire vector environment for simplicity
-            vec.reset()
-    
-    # Test with RecordEpisodeStatistics wrapper
-    print("\nTesting with RecordEpisodeStatistics wrapper...")
-    vec_with_stats = RecordEpisodeStatistics(vec)
-    obs, infos = vec_with_stats.reset()
-    
-    # Run a few episodes to test statistics
-    for episode in range(3):
-        terminated = np.zeros(vec_with_stats.num_envs, dtype=bool)
-        step_count = 0
-        
-        while not np.all(terminated) and step_count < 20:  # Limit steps to avoid infinite games
-            actions = [vec_with_stats.single_action_space.sample() for _ in range(vec_with_stats.num_envs)]
-            obs, rewards, terminations, truncations, infos = vec_with_stats.step(actions)
-            terminated = np.logical_or(terminations, truncations)
-            step_count += 1
+    # Training loop
+    for i in range(config["training_iterations"]):
+        mean_reward, mean_length, actor_loss, critic_loss, entropy_loss = agent.learn(train_env)
+
+        print(f"Iteration {i + 1}: Mean reward = {mean_reward:.3f}, Mean length = {mean_length:.1f}")
+        print(f"  Actor loss = {actor_loss:.4f}, Critic loss = {critic_loss:.4f}, Entropy loss = {entropy_loss:.4f}")
+
+        # Update opponent after every iteration (true self-play)
+        # Only update if we're not at the first iteration to allow initial learning
+        if i > 0:
+            new_opponent = VectorNNPolicy(deepcopy(agent.network), device=device)
+            train_env.opponent = new_opponent
+            print(f"  Updated opponent - training against current agent version")
+        else:
+            print(f"  Using initial random opponent for first iteration")
+
+        # Validation
+        if i > 0 and i % config["validation_interval"] == 0:
+            print(f"--- Running validation at step {i} ---")
+            validation_res = validate(mnk, config["validation_episodes"], agent, benchmark_policy, device)
             
-            if step_count % 5 == 0:
-                print(f"Episode {episode + 1}, Step {step_count}")
-                print(f"  Rewards: {rewards}")
-                print(f"  Terminations: {terminations}")
-                print(f"  Truncations: {truncations}")
-    
-    print("\nAll tests passed!")
+            if validation_res["validation/vs_benchmark/win_rate"] > config["benchmark_update_threshold"]:
+                print(f"--- New benchmark agent at step {i}! ---")
+                benchmark_policy = NNPolicy(deepcopy(agent.network))
+                save_benchmark_model(agent, "vector_test", i)
+
+    print("Training completed successfully!")
 
 
 if __name__ == "__main__":
-    test_vector_self_play_wrapper()
+    main()

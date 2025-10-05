@@ -11,7 +11,7 @@ from pettingzoo import AECEnv
 from src.selfplay.self_play_wrapper import Policy
 
 
-class RandomPolicy(Policy):
+class BatchRandomPolicy(Policy):
     def __init__(self, action_space):
         self.action_space = action_space
 
@@ -23,7 +23,7 @@ class RandomPolicy(Policy):
         return actions
 
 
-class NNPolicy(Policy):
+class VectorNNPolicy(Policy):
     def __init__(self, model, device="cpu"):
         self.model = model
         self.model.eval()
@@ -48,7 +48,7 @@ class NNPolicy(Policy):
 
 
 class VectorSelfPlayWrapper(gym.vector.VectorEnv):
-    def __init__(self, opponent: Policy, env_fn, n_envs=1, ):
+    def __init__(self, opponent: Policy, env_fn, n_envs=1):
         self.metadata = {"autoreset_mode": AutoresetMode.NEXT_STEP}
 
         self.num_envs = n_envs
@@ -59,7 +59,6 @@ class VectorSelfPlayWrapper(gym.vector.VectorEnv):
 
         self.single_observation_space = self.envs[0].observation_space(self.possible_agents[0])
         self.observation_space = batch_space(self.single_observation_space, self.num_envs)
-
         self.single_action_space = self.envs[0].action_space(self.possible_agents[0])
         self.action_space = batch_space(self.single_action_space, self.num_envs)
 
@@ -82,7 +81,7 @@ class VectorSelfPlayWrapper(gym.vector.VectorEnv):
         self.opponent_step()
 
         self.env_obs = [None for _ in range(self.num_envs)]
-        self.rewards = np.zeros((self.num_envs,), dtype=np.bool_)
+        self.rewards = np.zeros((self.num_envs,), dtype=np.float32)
         self.terminations = np.zeros((self.num_envs,), dtype=np.bool_)
 
         self.truncations = np.zeros((self.num_envs,), dtype=np.bool_)
@@ -104,18 +103,22 @@ class VectorSelfPlayWrapper(gym.vector.VectorEnv):
         return observations, infos
 
     def opponent_step(self):
-        envs_to_step = [v for i, v in enumerate(self.envs) if self.players[i] == v.agent_selection]
+        envs_to_step = [v for i, v in enumerate(self.envs) if self.players[i] == v.agent_selection and not self.autoreset_envs[i]]
 
         obs = [env.last()[0] for env in envs_to_step]
 
         act = self.opponent.act(obs)
 
         for i, env in enumerate(envs_to_step):
-            env.step(act[i])
+            _,_,term,trunc,info = env.last()
+            if term or trunc:
+                env.step(None)
+            else:
+                env.step(act[i])
 
     def step(self, actions):
 
-        for i,env in enumerate(self.envs):
+        for i, env in enumerate(self.envs):
             if self.autoreset_envs[i]:
                 env.reset()
                 self.players[i] = np.random.choice(self.possible_agents)
