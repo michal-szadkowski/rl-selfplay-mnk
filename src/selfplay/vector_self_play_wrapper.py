@@ -48,7 +48,7 @@ class VectorNNPolicy(Policy):
 
 
 class VectorSelfPlayWrapper(gym.vector.VectorEnv):
-    def __init__(self, opponent: Policy, env_fn, n_envs=1):
+    def __init__(self, env_fn, n_envs=1):
         self.metadata = {"autoreset_mode": AutoresetMode.NEXT_STEP}
 
         self.num_envs = n_envs
@@ -66,7 +66,7 @@ class VectorSelfPlayWrapper(gym.vector.VectorEnv):
 
         self.autoreset_envs = np.zeros((self.num_envs,), dtype=np.bool_)
 
-        self.opponent = opponent
+        self.opponent = None
 
     def reset(
             self,

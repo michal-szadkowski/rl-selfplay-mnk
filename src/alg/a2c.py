@@ -8,21 +8,28 @@ import numpy as np
 from src.alg.rollout_buffer import RolloutBuffer
 
 
-class ActorCritic(nn.Module):
-    def __init__(self, obs_shape, action_dim, hidden_dim=512):
+class ActorCriticModule(nn.Module):
+    def __init__(self, obs_shape, action_dim):
         super().__init__()
         # obs_shape is expected to be (channels, height, width), e.g., (2, 9, 9)
         channels, m, n = obs_shape
 
+        # Large convolutional body with more channels and layers
         self.shared_body = nn.Sequential(
-            nn.Conv2d(in_channels=channels, out_channels=64, kernel_size=3, padding=1),
-            nn.LayerNorm([64, m, n]),
+            nn.Conv2d(in_channels=channels, out_channels=256, kernel_size=3, padding=1),
+            nn.LayerNorm([256, m, n]),
             nn.ReLU(),
-            nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, padding=1),
-            nn.LayerNorm([128, m, n]),
+            nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, padding=1),
+            nn.LayerNorm([256, m, n]),
             nn.ReLU(),
-            nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, padding=1),
-            nn.LayerNorm([128, m, n]),
+            nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, padding=1),
+            nn.LayerNorm([256, m, n]),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, padding=1),
+            nn.LayerNorm([256, m, n]),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, padding=1),
+            nn.LayerNorm([256, m, n]),
             nn.ReLU(),
             nn.Flatten(),
         )
@@ -32,16 +39,21 @@ class ActorCritic(nn.Module):
             dummy_input = torch.zeros(1, *obs_shape)
             flattened_size = self.shared_body(dummy_input).shape[1]
 
+        # Larger actor and critic heads
         self.actor = nn.Sequential(
-            nn.Linear(flattened_size, hidden_dim),
+            nn.Linear(flattened_size, 2048),
             nn.ReLU(),
-            nn.Linear(hidden_dim, action_dim)
+            nn.Linear(2048, 1024),
+            nn.ReLU(),
+            nn.Linear(1024, action_dim)
         )
 
         self.critic = nn.Sequential(
-            nn.Linear(flattened_size, hidden_dim),
+            nn.Linear(flattened_size, 2048),
             nn.ReLU(),
-            nn.Linear(hidden_dim, 1),
+            nn.Linear(2048, 1024),
+            nn.ReLU(),
+            nn.Linear(1024, 1),
             nn.Tanh()
         )
 
@@ -67,7 +79,7 @@ class ActorCritic(nn.Module):
 
 
 class A2CAgent:
-    def __init__(self, obs_shape, action_dim, network: ActorCritic, n_steps: int, learning_rate=7e-4, gamma=0.99, batch_size=64,
+    def __init__(self, obs_shape, action_dim, network, n_steps: int, learning_rate=7e-4, gamma=0.99, batch_size=64,
                  device='cpu', num_envs=1):
         """
         Initializes the A2C agent with a batch size for updates.

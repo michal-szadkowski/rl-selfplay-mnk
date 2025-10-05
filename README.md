@@ -1,68 +1,74 @@
-# RL self-play MNK
+# MNK Game Self-Play Reinforcement Learning
 
-Project implementing a machine learning system using "self-play" methods (playing against oneself) in MNK game (generalization of Tic-Tac-Toe).
+Reinforcement learning system implementing self-play training for MNK games (generalized Tic-Tac-Toe) using Advantage Actor-Critic (A2C) algorithms.
 
-## Project Description
+## Overview
 
-MNK Selfplay is an implementation of the Advantage Actor-Critic (A2C) reinforcement learning algorithm for learning to play a generalized version of Tic-Tac-Toe. In MNK game, a player must place K stones in a row on an M×N board, allowing for game formats such as 9×9 with 5-in-a-row (common in Gomoku).
+This project implements a reinforcement learning framework for MNK games, where players aim to place K stones in a row on an M×N board. The system features vectorized training with dynamic opponent pools for efficient self-play learning.
 
-The project uses a game environment defined as a PettingZoo environment and trains an agent using self-play techniques, learning by playing against previous versions of itself or other strategies.
+## Architecture
 
-## Main Components
+### Core Components
 
-- **MNK Game Environment**: Implementation of the M×N board game with win condition - K stones in a line
-- **A2C Algorithm**: Implementation of the Actor-Critic algorithm for learning optimal moves
-- **Self-play**: System for learning by playing against oneself or other strategies
-- **Validation**: System for testing agent performance against random strategies and benchmarks
+- **MNK Game Environment**: Custom PettingZoo environment implementing M×N×K game dynamics
+- **A2C Agent**: Advantage Actor-Critic implementation with policy and value function optimization
+- **Vectorized Self-Play**: Training system with dynamic opponent management
+- **Validation System**: Benchmarking against random and previous agent versions
 
-## Features
+### Technical Stack
 
-- Agent training using the A2C algorithm
-- Human vs computer and computer vs computer gameplay
-- Ability to load saved neural network models
-- Validation and tracking of learning progress using Weights & Biases
-- Support for M×N×K format games (width × height × number of stones to win)
-- Self-play system with dynamically updated opponents
-
-## Technologies
-
-- Python
-- PyTorch
-- PettingZoo
-- Gymnasium
-- Weights & Biases
+- **Framework**: PyTorch for deep learning
+- **Environment**: PettingZoo/Gymnasium for RL environments
+- **Training**: Vectorized environments for parallel training
+- **Monitoring**: Weights & Biases for experiment tracking
 
 ## Usage
 
-### Training an agent:
+### Training
 
 ```bash
-python -m src.train_mnk
+# Vectorized training with self-play
+python -m src.vec_train_mnk
 ```
 
-### Playing against other agents or humans:
+### Gameplay
 
 ```bash
-# Human vs model game
+# Human vs trained model
 python -m src.play --p1 human --p2 path/to/model.pt --m 9 --n 9 --k 5
 
 # Model vs random agent
 python -m src.play --p1 path/to/model.pt --p2 random --m 9 --n 9 --k 5
 
-# Model vs model game
+# Model vs model
 python -m src.play --p1 model1.pt --p2 model2.pt --m 9 --n 9 --k 5
+
+# Custom MNK configuration
+python -m src.play --p1 model.pt --p2 random --m 7 --n 7 --k 4
 ```
 
-## Neural Network Architecture
+## Key Features
 
-The model consists of:
-- Shared convolutional part (Conv2D + LayerNorm) for feature extraction from the board
-- Actor layers for predicting move probabilities
-- Critic layer for estimating state value
+- **Self-Play Training**: Agents learn by playing against dynamically updated opponents
+- **Vectorized Environments**: Parallel training for improved efficiency
+- **Adaptive Difficulty**: Dynamic opponent pool with previous agent versions
+- **Validation System**: Performance tracking against benchmarks
+- **Action Masking**: Valid move enforcement for game rules compliance
+- **Flexible Configurations**: Support for various MNK settings (M×N×K)
+- **Model Persistence**: Save/load trained agent models
 
-## Training Algorithm
+## Game Mechanics
 
-- A2C (Advantage Actor-Critic) algorithm
-- Parallelization across multiple environments
-- Self-play with dynamically updated opponent pool
-- Periodic validation against benchmarks
+MNK generalizes Tic-Tac-Toe where:
+- **M**: Board width
+- **N**: Board height  
+- **K**: Stones required in a row to win
+
+## Development Setup
+
+```bash
+# Install dependencies
+uv sync
+```
+
+Dependencies include PyTorch, PettingZoo, Gymnasium, and Weights & Biases.

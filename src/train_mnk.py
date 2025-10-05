@@ -6,7 +6,7 @@ import os
 import gymnasium as gym
 from env.mnk_game_env import create_mnk_env
 from selfplay.self_play_wrapper import SelfPlayWrapper, NNPolicy, RandomPolicy
-from alg.a2c import A2CAgent, ActorCritic
+from alg.a2c import A2CAgent, ActorCriticModule
 from validation import validate_episodes
 
 
@@ -25,7 +25,6 @@ def train_mnk():
         "gamma": 0.99,
         "batch_size": 64,
         "n_steps": 1024,
-        "hidden_dim": 1024,
         "training_iterations": 1000,
         "validation_interval": 10,
         "validation_episodes": 100,
@@ -51,7 +50,7 @@ def train_mnk():
         # Instantiate the A2CAgent
         obs_shape = train_env.single_observation_space["observation"].shape
         action_dim = train_env.single_action_space.n
-        network = ActorCritic(obs_shape, action_dim, hidden_dim=run.config.hidden_dim)
+        network = ActorCriticModule(obs_shape, action_dim)
         agent = A2CAgent(obs_shape, action_dim, network, n_steps=run.config.n_steps, learning_rate=run.config.learning_rate,
                          gamma=run.config.gamma, batch_size=run.config.batch_size, device=device, num_envs=run.config.num_envs)
 

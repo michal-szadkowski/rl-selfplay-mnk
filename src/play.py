@@ -3,7 +3,7 @@ import torch
 
 from env.mnk_game_env import create_mnk_env
 from env.mnk_game import Color
-from alg.a2c import ActorCritic
+from alg.a2c import ActorCriticModule
 from selfplay.self_play_wrapper import Policy, NNPolicy, RandomPolicy
 
 
@@ -96,12 +96,7 @@ def main():
     parser.add_argument("--m", type=int, default=9, help="Board width.")
     parser.add_argument("--n", type=int, default=9, help="Board height.")
     parser.add_argument("--k", type=int, default=5, help="Number of pieces in a row to win.")
-    parser.add_argument(
-        "--hidden_dim",
-        type=int,
-        default=512,
-        help="Hidden dimension of the ActorCritic network if loading a model.",
-    )
+
     args = parser.parse_args()
 
     # Create the game environment
@@ -122,7 +117,7 @@ def main():
         # Otherwise, load the policy from a model file
         try:
             print(f"Loading model from: {policy_arg}")
-            network = ActorCritic(obs_shape, action_dim, hidden_dim=args.hidden_dim)
+            network = ActorCriticModule(obs_shape, action_dim)
             network.load_state_dict(torch.load(policy_arg, map_location=device))
             return NNPolicy(network, device=device)
         except FileNotFoundError:

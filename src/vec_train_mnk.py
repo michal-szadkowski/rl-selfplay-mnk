@@ -7,12 +7,12 @@ import os
 from env.mnk_game_env import create_mnk_env
 from selfplay.self_play_wrapper import NNPolicy, RandomPolicy
 from selfplay.vector_self_play_wrapper import VectorSelfPlayWrapper, VectorNNPolicy, BatchRandomPolicy
-from alg.a2c import A2CAgent, ActorCritic
+from alg.a2c import A2CAgent, ActorCriticModule
 from validation import validate_episodes
 
 
 def cleanup_opponent_pool(opponent_pool, max_size, device):
-    """Clean up GPU memory by removing oldest opponents from the pool."""
+    """Remove oldest opponents to maintain pool size and free GPU memory."""
     if len(opponent_pool) > max_size:
         # Remove oldest opponents to maintain maximum size
         excess_count = len(opponent_pool) - max_size
@@ -20,63 +20,94 @@ def cleanup_opponent_pool(opponent_pool, max_size, device):
             removed_opponent = opponent_pool.pop(0)
             # Explicitly delete the removed opponent to free memory
             del removed_opponent
-        # Force garbage collection
         import gc
         gc.collect()
         if device == "cuda":
             torch.cuda.empty_cache()
 
 
+def create_opponent_from_state_dict(state_dict, obs_shape, action_dim, device):
+    """Create a VectorNNPolicy from a state dict, loading to the appropriate device."""
+    network = ActorCriticModule(obs_shape, action_dim)
+    network.load_state_dict(state_dict)
+    network.to(device)
+    return VectorNNPolicy(network, device=device)
+
+
+def add_agent_to_pool(agent, opponent_pool):
+    """Add current agent to the opponent pool as a state dict on CPU."""
+    new_opponent_state = deepcopy(agent.network.state_dict())
+    # Move to CPU to save GPU memory
+    new_opponent_state_cpu = {k: v.cpu() for k, v in new_opponent_state.items()}
+    opponent_pool.append(new_opponent_state_cpu)
+
+
+def select_opponent_from_pool(opponent_pool, obs_shape, action_dim, device):
+    """Select a random opponent from the pool and return it."""
+    # Find state dict opponents in the pool
+    state_dict_opponents = [op for op in opponent_pool if isinstance(op, dict)]
+    if state_dict_opponents:
+        selected_state = random.choice(state_dict_opponents)
+        return create_opponent_from_state_dict(
+            selected_state, obs_shape, action_dim, device
+        )
+    return None
+
+
 def train_mnk():
-    # Define hyperparameters
     config = {
         "mnk": (9, 9, 5),
-        "learning_rate": 8e-5,
+        "learning_rate": 4e-5,
         "gamma": 0.99,
         "batch_size": 64,
-        "n_steps": 1024,
-        "hidden_dim": 1024,
+        "n_steps": 512,
         "training_iterations": 1000,
-        "validation_interval": 10,
-        "validation_episodes": 100,
-        "benchmark_update_threshold": 0.55,
+        "validation_interval": 5,
+        "validation_episodes": 50,
+        "benchmark_update_threshold": 0.65,
         "opponent_pool_size": 10,  # Maximum size of the opponent pool
-        "num_envs": 8,
+        "num_envs": 32,
     }
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Using device: {device}")
 
-    with wandb.init(project="mnk_vector_a2c", config=config, group="vec") as run:
+    with wandb.init(project="mnk_vector_a2c", config=config, group="vec", dir = './wnb') as run:
         mnk = run.config.mnk
 
-        # Create initial opponent pool with random policy
-        base_env = create_mnk_env(mnk[0], mnk[1], mnk[2])
-        random_opponent = BatchRandomPolicy(base_env.action_space("black"))
-        
         def env_fn():
             return create_mnk_env(m=mnk[0], n=mnk[1], k=mnk[2])
 
-        # Create vectorized environment using VectorSelfPlayWrapper
-        train_env = VectorSelfPlayWrapper(random_opponent, env_fn, n_envs=run.config.num_envs)
-        train_env = RecordEpisodeStatistics(train_env)
-
-        # Instantiate the A2CAgent
+        # Initialize vectorized self-play environment
+        train_env = VectorSelfPlayWrapper(env_fn, n_envs=run.config.num_envs)
+        
         obs_shape = train_env.single_observation_space["observation"].shape
         action_dim = train_env.single_action_space.n
-        network = ActorCritic(obs_shape, action_dim, hidden_dim=run.config.hidden_dim)
+
+        # Initialize A2C agent with neural network
+        network = ActorCriticModule(obs_shape, action_dim)
         agent = A2CAgent(obs_shape, action_dim, network, n_steps=run.config.n_steps, learning_rate=run.config.learning_rate,
                          gamma=run.config.gamma, batch_size=run.config.batch_size, device=device, num_envs=run.config.num_envs)
+
+        # Initialize opponent pool with initial agent version
+        opponent_pool = []
+        add_agent_to_pool(agent, opponent_pool)
+        
+        initial_opponent_for_env = create_opponent_from_state_dict(
+            opponent_pool[0], obs_shape, action_dim, device
+        )
+
+        # Set initial opponent for the training environment
+        train_env.opponent = initial_opponent_for_env
+        
+        train_env = RecordEpisodeStatistics(train_env)
 
         run.watch(agent.network)
 
         # Create benchmark agent for validation
         benchmark_policy = NNPolicy(deepcopy(agent.network))
 
-        # Maintain an opponent pool to provide varied opponents during training
-        opponent_pool = [random_opponent]  # Start with random opponent
-
-        # Training loop with dynamic opponent pool
+        # Main training loop
         for i in range(run.config.training_iterations):
             mean_reward, mean_length, actor_loss, critic_loss, entropy_loss = agent.learn(train_env)
 
@@ -90,38 +121,40 @@ def train_mnk():
                     "training/critic_loss": critic_loss,
                     "training/entropy_loss": entropy_loss,
                 },
-                step=i,
+                step=i
             )
 
-            # Periodically add current agent to opponent pool to improve training difficulty
-            if i > 0 and i % 5 == 0:  # Add new opponent every 5 iterations
-                new_opponent = VectorNNPolicy(deepcopy(agent.network), device=device)
-                opponent_pool.append(new_opponent)
+            # Update opponent pool with current agent every 5 iterations
+            if i > 0 and i % 5 == 0:
+                add_agent_to_pool(agent, opponent_pool)
                 
-                # Clean up the pool to maintain maximum size and manage memory
                 cleanup_opponent_pool(opponent_pool, run.config.opponent_pool_size, device)
                 
-                # Select a random opponent from the pool for next training steps
-                train_env.opponent = random.choice(opponent_pool)
+                # Select and set a new opponent for training
+                selected_opponent = select_opponent_from_pool(opponent_pool, obs_shape, action_dim, device)
+                if selected_opponent:
+                    train_env.opponent = selected_opponent
                 print(f"  Added new opponent to pool, now size: {len(opponent_pool)}")
 
-            # Occasionally switch to a different opponent from the pool
-            elif i > 0 and i % 2 == 0 and len(opponent_pool) > 1:
-                train_env.opponent = random.choice(opponent_pool)
+            # Switch to different opponent occasionally
+            elif i > 0 and i % 2 == 0:
+                selected_opponent = select_opponent_from_pool(opponent_pool, obs_shape, action_dim, device)
+                if selected_opponent:
+                    train_env.opponent = selected_opponent
 
+            # Validate agent performance periodically
             if i > 0 and i % run.config.validation_interval == 0:
                 print(f"--- Running validation at step {i} ---")
 
                 validation_res = validate(mnk, run.config.validation_episodes, agent, benchmark_policy, device)
                 run.log(validation_res, step=i)
 
+                # Update benchmark if current agent performs better
                 if validation_res["validation/vs_benchmark/win_rate"] > run.config.benchmark_update_threshold:
                     print(f"--- New benchmark agent at step {i}! ---")
                     benchmark_policy = NNPolicy(deepcopy(agent.network))
 
-                    # Add the new benchmark to opponent pool as well
-                    benchmark_vector_policy = VectorNNPolicy(deepcopy(agent.network), device=device)
-                    opponent_pool.append(benchmark_vector_policy)
+                    add_agent_to_pool(agent, opponent_pool)
                     
                     # Clean up the pool after adding benchmark
                     cleanup_opponent_pool(opponent_pool, run.config.opponent_pool_size, device)
@@ -167,7 +200,7 @@ def validate(mnk, n_episodes, agent, benchmark_policy, device):
     )
     print(f"Win rate vs benchmark = {benchmark_stats['win_rate']:.3f}/{benchmark_stats['draw_rate']:.3f}")
 
-    agent.network.train()  # Set model back to training mode
+    agent.network.train()
     return (
         {
             "validation/vs_random/win_rate": random_stats["win_rate"],
