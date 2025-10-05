@@ -11,6 +11,22 @@ from alg.a2c import A2CAgent, ActorCritic
 from validation import validate_episodes
 
 
+def cleanup_opponent_pool(opponent_pool, max_size, device):
+    """Clean up GPU memory by removing oldest opponents from the pool."""
+    if len(opponent_pool) > max_size:
+        # Remove oldest opponents to maintain maximum size
+        excess_count = len(opponent_pool) - max_size
+        for _ in range(excess_count):
+            removed_opponent = opponent_pool.pop(0)
+            # Explicitly delete the removed opponent to free memory
+            del removed_opponent
+        # Force garbage collection
+        import gc
+        gc.collect()
+        if device == "cuda":
+            torch.cuda.empty_cache()
+
+
 def train_mnk():
     # Define hyperparameters
     config = {
@@ -82,9 +98,8 @@ def train_mnk():
                 new_opponent = VectorNNPolicy(deepcopy(agent.network), device=device)
                 opponent_pool.append(new_opponent)
                 
-                # Limit pool size by removing oldest opponents
-                if len(opponent_pool) > run.config.opponent_pool_size:
-                    opponent_pool.pop(0)
+                # Clean up the pool to maintain maximum size and manage memory
+                cleanup_opponent_pool(opponent_pool, run.config.opponent_pool_size, device)
                 
                 # Select a random opponent from the pool for next training steps
                 train_env.opponent = random.choice(opponent_pool)
@@ -107,8 +122,9 @@ def train_mnk():
                     # Add the new benchmark to opponent pool as well
                     benchmark_vector_policy = VectorNNPolicy(deepcopy(agent.network), device=device)
                     opponent_pool.append(benchmark_vector_policy)
-                    if len(opponent_pool) > run.config.opponent_pool_size:
-                        opponent_pool.pop(0)
+                    
+                    # Clean up the pool after adding benchmark
+                    cleanup_opponent_pool(opponent_pool, run.config.opponent_pool_size, device)
 
                     save_benchmark_model(agent, run.name, i)
 
