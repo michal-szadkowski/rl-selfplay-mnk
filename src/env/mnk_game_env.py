@@ -1,5 +1,5 @@
 from pettingzoo import AECEnv
-from src.env.mnk_game import MnkGame, Color
+from .mnk_game import MnkGame, Color
 
 import gymnasium
 import numpy as np

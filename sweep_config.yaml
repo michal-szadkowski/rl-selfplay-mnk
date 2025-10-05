@@ -1,0 +1,34 @@
+# WandB Sweep Configuration for MNK Game A2C Training
+program: src/vec_train_mnk.py
+method: bayes  # Options: grid, random, bayes
+metric:
+  name: validation/vs_benchmark/win_rate
+  goal: maximize
+parameters:
+  learning_rate:
+    min: 0.000005
+    max: 0.001
+    distribution: log_uniform_values
+  gamma:
+    min: 0.9
+    max: 0.999
+    distribution: uniform
+  batch_size:
+    values: [32, 64, 128]
+    distribution: categorical
+  n_steps:
+    values: [256, 512, 1024]
+    distribution: categorical
+  validation_interval:
+    values: [5, 10, 20]
+    distribution: categorical
+  opponent_pool_size:
+    values: [1, 5, 10]
+    distribution: categorical
+early_terminate:
+  type: hyperband
+  min_iter: 100
+command:
+  - ${env}
+  - .venv/bin/python
+  - ${program}

@@ -8,7 +8,7 @@ from gymnasium.vector import AutoresetMode
 from gymnasium.vector.utils import batch_space, concatenate, create_empty_array
 from pettingzoo import AECEnv
 
-from src.selfplay.self_play_wrapper import Policy
+from .self_play_wrapper import Policy
 
 
 class BatchRandomPolicy(Policy):

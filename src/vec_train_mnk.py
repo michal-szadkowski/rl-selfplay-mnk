@@ -55,24 +55,26 @@ def select_opponent_from_pool(opponent_pool, obs_shape, action_dim, device):
 
 
 def train_mnk():
-    config = {
+    # Configuration for wandb sweep - default parameters will be overridden by sweep
+    default_config = {
         "mnk": (9, 9, 5),
-        "learning_rate": 4e-5,
+        "learning_rate": 1e-4,
         "gamma": 0.99,
         "batch_size": 64,
         "n_steps": 512,
-        "training_iterations": 1000,
+        "training_iterations": 500,
         "validation_interval": 5,
         "validation_episodes": 50,
         "benchmark_update_threshold": 0.65,
-        "opponent_pool_size": 10,  # Maximum size of the opponent pool
-        "num_envs": 32,
+        "opponent_pool_size": 1,
+        "num_envs": 16,
     }
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Using device: {device}")
 
-    with wandb.init(project="mnk_vector_a2c", config=config, group="vec", dir = './wnb') as run:
+    # Initialize wandb - if running in sweep mode, config will be overridden by sweep values
+    with wandb.init(config=default_config, project="mnk_vector_a2c", group="vec", dir='./wnb') as run:
         mnk = run.config.mnk
 
         def env_fn():
@@ -124,23 +126,23 @@ def train_mnk():
                 step=i
             )
 
-            # Update opponent pool with current agent every 5 iterations
-            if i > 0 and i % 5 == 0:
-                add_agent_to_pool(agent, opponent_pool)
-                
-                cleanup_opponent_pool(opponent_pool, run.config.opponent_pool_size, device)
-                
-                # Select and set a new opponent for training
-                selected_opponent = select_opponent_from_pool(opponent_pool, obs_shape, action_dim, device)
-                if selected_opponent:
-                    train_env.opponent = selected_opponent
-                print(f"  Added new opponent to pool, now size: {len(opponent_pool)}")
-
-            # Switch to different opponent occasionally
-            elif i > 0 and i % 2 == 0:
-                selected_opponent = select_opponent_from_pool(opponent_pool, obs_shape, action_dim, device)
-                if selected_opponent:
-                    train_env.opponent = selected_opponent
+            # # Update opponent pool with current agent every 5 iterations
+            # if i > 0 and i % 5 == 0:
+            #     add_agent_to_pool(agent, opponent_pool)
+            #
+            #     cleanup_opponent_pool(opponent_pool, run.config.opponent_pool_size, device)
+            #
+            #     # Select and set a new opponent for training
+            #     selected_opponent = select_opponent_from_pool(opponent_pool, obs_shape, action_dim, device)
+            #     if selected_opponent:
+            #         train_env.opponent = selected_opponent
+            #     print(f"  Added new opponent to pool, now size: {len(opponent_pool)}")
+            #
+            # # Switch to different opponent occasionally
+            # else:
+            selected_opponent = select_opponent_from_pool(opponent_pool, obs_shape, action_dim, device)
+            if selected_opponent:
+                train_env.opponent = selected_opponent
 
             # Validate agent performance periodically
             if i > 0 and i % run.config.validation_interval == 0:

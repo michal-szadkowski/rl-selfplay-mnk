@@ -72,3 +72,31 @@ uv sync
 ```
 
 Dependencies include PyTorch, PettingZoo, Gymnasium, and Weights & Biases.
+
+## Hyperparameter Sweeping with Weights & Biases
+
+This project supports hyperparameter optimization using W&B sweeps. The sweep configuration is defined in `sweep_config.yaml`.
+
+### Setting up a Sweep
+
+1. First, ensure you have a W&B account and have logged in using `wandb login`
+2. Create a new sweep using the configuration file:
+
+```bash
+wandb sweep sweep_config.yaml
+```
+
+This will output a sweep ID. Make note of it as you'll need it to launch sweep agents.
+
+### Running Sweep Agents
+
+To launch agents that will run the training with different hyperparameter combinations:
+
+```bash
+# Launch a sweep agent with the sweep ID from the previous step
+wandb agent <SWEEP_ID>
+```
+
+Each agent will run a complete training run with different hyperparameter values sampled from the defined search space.
+
+The sweep is configured to maximize the metric `validation/vs_benchmark/win_rate` using Bayesian optimization.

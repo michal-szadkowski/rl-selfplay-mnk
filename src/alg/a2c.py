@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from torch.distributions import Categorical
 import numpy as np
 
-from src.alg.rollout_buffer import RolloutBuffer
+from .rollout_buffer import RolloutBuffer
 
 
 class ActorCriticModule(nn.Module):
@@ -14,22 +14,19 @@ class ActorCriticModule(nn.Module):
         # obs_shape is expected to be (channels, height, width), e.g., (2, 9, 9)
         channels, m, n = obs_shape
 
-        # Large convolutional body with more channels and layers
+        # Convolutional body
         self.shared_body = nn.Sequential(
             nn.Conv2d(in_channels=channels, out_channels=256, kernel_size=3, padding=1),
-            nn.LayerNorm([256, m, n]),
+            #nn.LayerNorm([256, m, n]),
             nn.ReLU(),
             nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, padding=1),
-            nn.LayerNorm([256, m, n]),
+            #nn.LayerNorm([256, m, n]),
             nn.ReLU(),
             nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, padding=1),
-            nn.LayerNorm([256, m, n]),
+            #nn.LayerNorm([256, m, n]),
             nn.ReLU(),
             nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, padding=1),
-            nn.LayerNorm([256, m, n]),
-            nn.ReLU(),
-            nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, padding=1),
-            nn.LayerNorm([256, m, n]),
+            #nn.LayerNorm([256, m, n]),
             nn.ReLU(),
             nn.Flatten(),
         )
@@ -39,19 +36,15 @@ class ActorCriticModule(nn.Module):
             dummy_input = torch.zeros(1, *obs_shape)
             flattened_size = self.shared_body(dummy_input).shape[1]
 
-        # Larger actor and critic heads
+        # Actor and critic heads
         self.actor = nn.Sequential(
-            nn.Linear(flattened_size, 2048),
-            nn.ReLU(),
-            nn.Linear(2048, 1024),
+            nn.Linear(flattened_size, 1024),
             nn.ReLU(),
             nn.Linear(1024, action_dim)
         )
 
         self.critic = nn.Sequential(
-            nn.Linear(flattened_size, 2048),
-            nn.ReLU(),
-            nn.Linear(2048, 1024),
+            nn.Linear(flattened_size, 1024),
             nn.ReLU(),
             nn.Linear(1024, 1),
             nn.Tanh()
