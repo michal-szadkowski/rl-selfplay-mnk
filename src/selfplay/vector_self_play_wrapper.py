@@ -31,17 +31,17 @@ class VectorNNPolicy(Policy):
         self.device = device
 
     def act(self, obs):
-        observations = []
-        masks = []
-        for o in obs:
-            observations.append(torch.as_tensor(o["observation"], device=self.device, dtype=torch.float32))
-            masks.append(torch.as_tensor(o["action_mask"], device=self.device))
+        observation_batch = torch.stack([
+            torch.as_tensor(o["observation"], device=self.device, dtype=torch.float32) 
+            for o in obs
+        ])
+        mask_batch = torch.stack([
+            torch.as_tensor(o["action_mask"], device=self.device, dtype=torch.bool) 
+            for o in obs
+        ])
 
         with torch.no_grad():
-            dist, _ = self.model(
-                torch.stack(observations),
-                torch.stack(masks),
-            )
+            dist, _ = self.model(observation_batch, mask_batch)
 
         action = dist.sample()
         return action.cpu().numpy()

@@ -29,13 +29,13 @@ class RolloutBuffer:
         if self.ptr >= self.n_steps:
             raise IndexError("Buffer is full.")
 
-        self.observations[self.ptr] = torch.as_tensor(obs, dtype=torch.float32, device=self.device)
-        self.actions[self.ptr] = torch.as_tensor(action, dtype=torch.long, device=self.device)
-        self.rewards[self.ptr] = torch.as_tensor(reward, dtype=torch.float32, device=self.device)
-        self.values[self.ptr] = torch.as_tensor(value, dtype=torch.float32, device=self.device).view(-1)
-        self.log_probs[self.ptr] = torch.as_tensor(log_prob, dtype=torch.float32, device=self.device)
-        self.dones[self.ptr] = torch.as_tensor(done, dtype=torch.bool, device=self.device)
-        self.action_masks[self.ptr] = torch.as_tensor(action_mask, dtype=torch.bool, device=self.device)
+        self.observations[self.ptr].copy_(torch.as_tensor(obs, dtype=torch.float32, device=self.device))
+        self.actions[self.ptr].copy_(torch.as_tensor(action, dtype=torch.long, device=self.device))
+        self.rewards[self.ptr].copy_(torch.as_tensor(reward, dtype=torch.float32, device=self.device))
+        self.values[self.ptr].copy_(torch.as_tensor(value, dtype=torch.float32, device=self.device).view(-1))
+        self.log_probs[self.ptr].copy_(torch.as_tensor(log_prob, dtype=torch.float32, device=self.device))
+        self.dones[self.ptr].copy_(torch.as_tensor(done, dtype=torch.bool, device=self.device))
+        self.action_masks[self.ptr].copy_(torch.as_tensor(action_mask, dtype=torch.bool, device=self.device))
         self.ptr += 1
 
     def compute_advantages_and_returns(self, last_values, gamma=0.99, gae_lambda=0.95):
@@ -74,12 +74,13 @@ class RolloutBuffer:
         steps = self.ptr if self.ptr > 0 else self.n_steps
         num_samples = steps * self.num_envs
 
-        observations = self.observations[:steps].reshape(num_samples, *self.obs_shape)
-        actions = self.actions[:steps].reshape(num_samples)
-        log_probs = self.log_probs[:steps].reshape(num_samples)
-        returns = self.returns[:steps].reshape(num_samples)
-        advantages = self.advantages[:steps].reshape(num_samples)
-        action_masks = self.action_masks[:steps].reshape(num_samples, self.action_dim)
+        # More memory-efficient reshaping
+        observations = self.observations[:steps].view(num_samples, *self.obs_shape)
+        actions = self.actions[:steps].view(num_samples)
+        log_probs = self.log_probs[:steps].view(num_samples)
+        returns = self.returns[:steps].view(num_samples)
+        advantages = self.advantages[:steps].view(num_samples)
+        action_masks = self.action_masks[:steps].view(num_samples, self.action_dim)
 
         if normalize_advantages:
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
