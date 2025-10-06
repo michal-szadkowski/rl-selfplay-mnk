@@ -13,20 +13,19 @@ class ActorCriticModule(nn.Module):
         super().__init__()
         # obs_shape is expected to be (channels, height, width), e.g., (2, 9, 9)
         channels, m, n = obs_shape
+        
+        # Store action_dim for use in initialization
+        self.action_dim = action_dim
 
         # Convolutional body
         self.shared_body = nn.Sequential(
             nn.Conv2d(in_channels=channels, out_channels=256, kernel_size=3, padding=1),
-            #nn.LayerNorm([256, m, n]),
             nn.ReLU(),
             nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, padding=1),
-            #nn.LayerNorm([256, m, n]),
             nn.ReLU(),
             nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, padding=1),
-            #nn.LayerNorm([256, m, n]),
             nn.ReLU(),
             nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, padding=1),
-            #nn.LayerNorm([256, m, n]),
             nn.ReLU(),
             nn.Flatten(),
         )
@@ -49,6 +48,28 @@ class ActorCriticModule(nn.Module):
             nn.Linear(1024, 1),
             nn.Tanh()
         )
+
+        self._initialize_weights()
+
+    def _initialize_weights(self):
+        for module in self.modules():
+            if isinstance(module, nn.Conv2d):
+                nn.init.orthogonal_(module.weight, gain=nn.init.calculate_gain('relu'))
+                if module.bias is not None:
+                    nn.init.zeros_(module.bias)
+
+            elif isinstance(module, nn.Linear):
+                if module.out_features == 1:
+                    nn.init.orthogonal_(module.weight, gain=1.0)
+
+                elif module.out_features == self.action_dim:
+                    nn.init.orthogonal_(module.weight, gain=0.01)
+
+                else:
+                    nn.init.orthogonal_(module.weight, gain=nn.init.calculate_gain('relu'))
+
+                if module.bias is not None:
+                    nn.init.zeros_(module.bias)
 
     def forward(self, obs, action_mask=None):
         features = self.shared_body(obs)
