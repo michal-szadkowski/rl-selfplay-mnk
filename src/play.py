@@ -3,7 +3,7 @@ import torch
 
 from env.mnk_game_env import create_mnk_env
 from env.mnk_game import Color
-from alg.a2c import ActorCriticModule
+from alg.ppo import ActorCriticModule
 from selfplay.self_play_wrapper import Policy, NNPolicy, RandomPolicy
 
 

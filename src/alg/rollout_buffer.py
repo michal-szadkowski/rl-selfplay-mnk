@@ -85,12 +85,15 @@ class RolloutBuffer:
         if normalize_advantages:
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
+        values = self.values[:steps].view(num_samples)  # Old value estimates from rollout collection
+        
         dataset = TensorDataset(
             observations,
             actions,
             log_probs,
             returns,
             advantages,
-            action_masks
+            action_masks,
+            values
         )
         return DataLoader(dataset, batch_size=batch_size, shuffle=True)

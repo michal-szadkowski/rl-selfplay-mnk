@@ -7,7 +7,7 @@ import os
 from env.mnk_game_env import create_mnk_env
 from selfplay.self_play_wrapper import NNPolicy, RandomPolicy
 from selfplay.vector_self_play_wrapper import VectorSelfPlayWrapper, VectorNNPolicy, BatchRandomPolicy
-from alg.a2c import A2CAgent, ActorCriticModule
+from alg.ppo import PPOAgent, ActorCriticModule
 from validation import validate_episodes
 
 
@@ -82,26 +82,35 @@ def train_mnk():
 
         # Initialize vectorized self-play environment
         train_env = VectorSelfPlayWrapper(env_fn, n_envs=run.config.num_envs)
-        
+
         obs_shape = train_env.single_observation_space["observation"].shape
         action_dim = train_env.single_action_space.n
 
         # Initialize A2C agent with neural network
         network = ActorCriticModule(obs_shape, action_dim)
-        agent = A2CAgent(obs_shape, action_dim, network, n_steps=run.config.n_steps, learning_rate=run.config.learning_rate,
-                         gamma=run.config.gamma, batch_size=run.config.batch_size, device=device, num_envs=run.config.num_envs)
+        agent = PPOAgent(
+            obs_shape,
+            action_dim,
+            network,
+            n_steps=run.config.n_steps,
+            learning_rate=run.config.learning_rate,
+            gamma=run.config.gamma,
+            batch_size=run.config.batch_size,
+            device=device,
+            num_envs=run.config.num_envs
+        )
 
         # Initialize opponent pool with initial agent version
         opponent_pool = []
         add_agent_to_pool(agent, opponent_pool)
-        
+
         initial_opponent_for_env = create_opponent_from_state_dict(
             opponent_pool[0], obs_shape, action_dim, device
         )
 
         # Set initial opponent for the training environment
         train_env.opponent = initial_opponent_for_env
-        
+
         train_env = RecordEpisodeStatistics(train_env)
 
         run.watch(agent.network)
@@ -157,7 +166,7 @@ def train_mnk():
                     benchmark_policy = NNPolicy(deepcopy(agent.network))
 
                     add_agent_to_pool(agent, opponent_pool)
-                    
+
                     # Clean up the pool after adding benchmark
                     cleanup_opponent_pool(opponent_pool, run.config.opponent_pool_size, device)
 

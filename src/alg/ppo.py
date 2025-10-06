@@ -13,7 +13,7 @@ class ActorCriticModule(nn.Module):
         super().__init__()
         # obs_shape is expected to be (channels, height, width), e.g., (2, 9, 9)
         channels, m, n = obs_shape
-        
+
         # Store action_dim for use in initialization
         self.action_dim = action_dim
 
@@ -92,7 +92,7 @@ class ActorCriticModule(nn.Module):
         return dist, value
 
 
-class A2CAgent:
+class PPOAgent:
     def __init__(self, obs_shape, action_dim, network, n_steps: int, learning_rate=7e-4, gamma=0.99, batch_size=64,
                  device='cpu', num_envs=1):
         """
@@ -183,7 +183,7 @@ class A2CAgent:
         entropy_losses = []
 
         # Iterate over mini-batches
-        for observations, actions, old_log_probs, returns, advantages, action_masks in data_loader:
+        for observations, actions, old_log_probs, returns, advantages, action_masks, old_values in data_loader:
             dist, values = self.network(observations, action_masks)
 
             # Actor loss
