@@ -32,11 +32,11 @@ class VectorNNPolicy(Policy):
 
     def act(self, obs):
         observation_batch = torch.stack([
-            torch.as_tensor(o["observation"], device=self.device, dtype=torch.float32) 
+            torch.as_tensor(o["observation"], device=self.device, dtype=torch.float32)
             for o in obs
         ])
         mask_batch = torch.stack([
-            torch.as_tensor(o["action_mask"], device=self.device, dtype=torch.bool) 
+            torch.as_tensor(o["action_mask"], device=self.device, dtype=torch.bool)
             for o in obs
         ])
 
@@ -103,14 +103,16 @@ class VectorSelfPlayWrapper(gym.vector.VectorEnv):
         return observations, infos
 
     def opponent_step(self):
-        envs_to_step = [v for i, v in enumerate(self.envs) if self.players[i] == v.agent_selection and not self.autoreset_envs[i]]
+        envs_to_step = [env for i, env in enumerate(self.envs) if self.players[i] != env.agent_selection and not self.autoreset_envs[i]]
+        if len(envs_to_step) == 0:
+            return
 
         obs = [env.last()[0] for env in envs_to_step]
 
         act = self.opponent.act(obs)
 
         for i, env in enumerate(envs_to_step):
-            _,_,term,trunc,info = env.last()
+            _, _, term, trunc, info = env.last()
             if term or trunc:
                 env.step(None)
             else:
@@ -122,6 +124,7 @@ class VectorSelfPlayWrapper(gym.vector.VectorEnv):
             if self.autoreset_envs[i]:
                 env.reset()
                 self.players[i] = np.random.choice(self.possible_agents)
+                self.autoreset_envs[i] = False
             else:
                 env.step(actions[i])
 
@@ -129,6 +132,8 @@ class VectorSelfPlayWrapper(gym.vector.VectorEnv):
 
         infos = {}
         for i, env in enumerate(self.envs):
+            assert env.agent_selection == self.players[i]
+
             o, r, term, trunc, info = env.last()
 
             self.env_obs[i] = o

@@ -61,13 +61,13 @@ def train_mnk():
         "learning_rate": 1e-4,
         "gamma": 0.99,
         "batch_size": 64,
-        "n_steps": 512,
-        "training_iterations": 500,
+        "n_steps": 256,
+        "training_iterations": 300,
         "validation_interval": 5,
         "validation_episodes": 50,
         "benchmark_update_threshold": 0.65,
-        "opponent_pool_size": 1,
-        "num_envs": 16,
+        "opponent_pool_size": 5,
+        "num_envs": 12,
     }
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -135,17 +135,17 @@ def train_mnk():
                 step=i
             )
 
-            # # Update opponent pool with current agent every 5 iterations
-            # if i > 0 and i % 5 == 0:
-            #     add_agent_to_pool(agent, opponent_pool)
-            #
-            #     cleanup_opponent_pool(opponent_pool, run.config.opponent_pool_size, device)
-            #
-            #     # Select and set a new opponent for training
-            #     selected_opponent = select_opponent_from_pool(opponent_pool, obs_shape, action_dim, device)
-            #     if selected_opponent:
-            #         train_env.opponent = selected_opponent
-            #     print(f"  Added new opponent to pool, now size: {len(opponent_pool)}")
+            # Update opponent pool with current agent every 5 iterations
+            if i > 0 and i % 2 == 0:
+                add_agent_to_pool(agent, opponent_pool)
+
+                cleanup_opponent_pool(opponent_pool, run.config.opponent_pool_size, device)
+
+                # Select and set a new opponent for training
+                selected_opponent = select_opponent_from_pool(opponent_pool, obs_shape, action_dim, device)
+                if selected_opponent:
+                    train_env.opponent = selected_opponent
+                print(f"  Added new opponent to pool, now size: {len(opponent_pool)}")
             #
             # # Switch to different opponent occasionally
             # else:
