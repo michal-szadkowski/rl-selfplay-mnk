@@ -5,8 +5,7 @@ import numpy as np
 from pettingzoo.utils.env import AECEnv
 
 from env.mnk_game_env import create_mnk_env
-from selfplay.self_play_wrapper import NNPolicy, RandomPolicy
-from selfplay.self_play_wrapper import Policy
+from selfplay.policy import NNPolicy, RandomPolicy, Policy
 
 
 def play_single_episode(

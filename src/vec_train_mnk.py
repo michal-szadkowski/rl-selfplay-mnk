@@ -8,8 +8,8 @@ from gymnasium.wrappers.vector import RecordEpisodeStatistics
 
 from alg.ppo import PPOAgent, ActorCriticModule
 from env.mnk_game_env import create_mnk_env
-from selfplay.self_play_wrapper import NNPolicy
-from selfplay.vector_self_play_wrapper import VectorSelfPlayWrapper, VectorNNPolicy
+from selfplay.policy import NNPolicy, VectorNNPolicy
+from selfplay.vector_self_play_wrapper import VectorSelfPlayWrapper
 from validation import run_validation
 
 
@@ -184,8 +184,6 @@ def save_benchmark_model(agent, name, step):
     model_path = os.path.join(model_dir, f"benchmark_step_{step}.pt")
     torch.save(agent.network.state_dict(), model_path)
     print(f"Saved new benchmark model to {model_path}")
-
-
 
 
 if __name__ == "__main__":
