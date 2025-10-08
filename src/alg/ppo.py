@@ -19,13 +19,11 @@ class ActorCriticModule(nn.Module):
 
         # Convolutional body
         self.shared_body = nn.Sequential(
-            nn.Conv2d(in_channels=channels, out_channels=256, kernel_size=3, padding=1),
+            nn.Conv2d(in_channels=channels, out_channels=64, kernel_size=3, padding=1),
             nn.ReLU(),
-            nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, padding=1),
+            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, padding=1),
             nn.ReLU(),
-            nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, padding=1),
+            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, padding=1),
             nn.ReLU(),
             nn.Flatten(),
         )
@@ -37,14 +35,12 @@ class ActorCriticModule(nn.Module):
 
         # Actor and critic heads
         self.actor = nn.Sequential(
-            nn.Linear(flattened_size, 1024),
-            nn.ReLU(),
-            nn.Linear(1024, action_dim)
+            nn.Linear(flattened_size, action_dim),
         )
 
         self.critic = nn.Sequential(
             nn.Linear(flattened_size, 1024),
-            nn.ReLU(),
+            nn.Tanh(),
             nn.Linear(1024, 1),
             nn.Tanh()
         )
@@ -101,7 +97,7 @@ class PPOAgent:
                  learning_rate=7e-4,
                  gamma=0.99,
                  gae_lambda=0.95,
-                 clip_range=0.3,
+                 clip_range=0.2,
                  ppo_epochs=4,
                  batch_size=64,
                  value_coef=0.5,
@@ -136,7 +132,7 @@ class PPOAgent:
         self.entropy_coef = entropy_coef
         self.num_envs = num_envs
         self.n_steps = n_steps
-        self.optimizer = optim.AdamW(self.network.parameters(), lr=learning_rate)
+        self.optimizer = optim.Adam(self.network.parameters(), lr=learning_rate)
 
         self.buffer = RolloutBuffer(self.n_steps, self.num_envs, obs_shape, action_dim, device=self.device)
 
