@@ -68,6 +68,10 @@ class VectorSelfPlayWrapper(gym.vector.VectorEnv):
 
         self.opponent = None
 
+    def set_opponent(self, opponent):
+        """Set the opponent policy for self-play."""
+        self.opponent = opponent
+
     def reset(
             self,
             *,

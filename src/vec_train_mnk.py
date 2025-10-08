@@ -1,14 +1,16 @@
-import torch
+import os
 import random
 from copy import deepcopy
-from gymnasium.wrappers.vector import RecordEpisodeStatistics
+
+import torch
 import wandb
-import os
-from env.mnk_game_env import create_mnk_env
-from selfplay.self_play_wrapper import NNPolicy, RandomPolicy
-from selfplay.vector_self_play_wrapper import VectorSelfPlayWrapper, VectorNNPolicy, BatchRandomPolicy
+from gymnasium.wrappers.vector import RecordEpisodeStatistics
+
 from alg.ppo import PPOAgent, ActorCriticModule
-from validation import validate_episodes
+from env.mnk_game_env import create_mnk_env
+from selfplay.self_play_wrapper import NNPolicy
+from selfplay.vector_self_play_wrapper import VectorSelfPlayWrapper, VectorNNPolicy
+from validation import run_validation
 
 
 def cleanup_opponent_pool(opponent_pool, max_size, device):
@@ -60,14 +62,14 @@ def train_mnk():
         "mnk": (9, 9, 5),
         "learning_rate": 1e-4,
         "gamma": 0.99,
-        "batch_size": 64,
-        "n_steps": 256,
+        "batch_size": 128,
+        "n_steps": 512,
         "training_iterations": 300,
         "validation_interval": 5,
         "validation_episodes": 50,
         "benchmark_update_threshold": 0.65,
-        "opponent_pool_size": 5,
-        "num_envs": 12,
+        "opponent_pool_size": 1,
+        "num_envs": 8,
     }
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -82,6 +84,7 @@ def train_mnk():
 
         # Initialize vectorized self-play environment
         train_env = VectorSelfPlayWrapper(env_fn, n_envs=run.config.num_envs)
+        train_env = RecordEpisodeStatistics(train_env)
 
         obs_shape = train_env.single_observation_space["observation"].shape
         action_dim = train_env.single_action_space.n
@@ -109,9 +112,7 @@ def train_mnk():
         )
 
         # Set initial opponent for the training environment
-        train_env.opponent = initial_opponent_for_env
-
-        train_env = RecordEpisodeStatistics(train_env)
+        train_env.unwrapped.set_opponent(initial_opponent_for_env)
 
         run.watch(agent.network)
 
@@ -144,20 +145,20 @@ def train_mnk():
                 # Select and set a new opponent for training
                 selected_opponent = select_opponent_from_pool(opponent_pool, obs_shape, action_dim, device)
                 if selected_opponent:
-                    train_env.opponent = selected_opponent
+                    train_env.unwrapped.set_opponent(selected_opponent)
                 print(f"  Added new opponent to pool, now size: {len(opponent_pool)}")
             #
             # # Switch to different opponent occasionally
             # else:
             selected_opponent = select_opponent_from_pool(opponent_pool, obs_shape, action_dim, device)
             if selected_opponent:
-                train_env.opponent = selected_opponent
+                train_env.unwrapped.set_opponent(selected_opponent)
 
             # Validate agent performance periodically
             if i > 0 and i % run.config.validation_interval == 0:
                 print(f"--- Running validation at step {i} ---")
 
-                validation_res = validate(mnk, run.config.validation_episodes, agent, benchmark_policy, device)
+                validation_res = run_validation(mnk, run.config.validation_episodes, agent, benchmark_policy, device, seed=i)
                 run.log(validation_res, step=i)
 
                 # Update benchmark if current agent performs better
@@ -185,43 +186,6 @@ def save_benchmark_model(agent, name, step):
     print(f"Saved new benchmark model to {model_path}")
 
 
-def validate(mnk, n_episodes, agent, benchmark_policy, device):
-    validation_env = create_mnk_env(m=mnk[0], n=mnk[1], k=mnk[2])
-
-    agent.network.eval()
-
-    current_policy = NNPolicy(agent.network, device=device)
-    random_policy = RandomPolicy(validation_env.action_space(validation_env.possible_agents[0]))
-
-    # 1. Validate against a random opponent
-    random_stats = validate_episodes(
-        validation_env,
-        current_policy,
-        random_policy,
-        n_episodes,
-    )
-    print(f"Win rate vs random = {random_stats['win_rate']:.3f}/{random_stats['draw_rate']:.3f}")
-
-    # 2. Validate against the benchmark agent
-    benchmark_stats = validate_episodes(
-        validation_env,
-        current_policy,
-        benchmark_policy,
-        n_episodes,
-    )
-    print(f"Win rate vs benchmark = {benchmark_stats['win_rate']:.3f}/{benchmark_stats['draw_rate']:.3f}")
-
-    agent.network.train()
-    return (
-        {
-            "validation/vs_random/win_rate": random_stats["win_rate"],
-            "validation/vs_random/loss_rate": random_stats["loss_rate"],
-            "validation/vs_random/draw_rate": random_stats["draw_rate"],
-            "validation/vs_benchmark/win_rate": benchmark_stats["win_rate"],
-            "validation/vs_benchmark/loss_rate": benchmark_stats["loss_rate"],
-            "validation/vs_benchmark/draw_rate": benchmark_stats["draw_rate"],
-        }
-    )
 
 
 if __name__ == "__main__":
