@@ -14,10 +14,10 @@ parameters:
     max: 0.995
     distribution: uniform
   batch_size:
-    values: [32, 64, 128]
+    values: [ 32, 64, 128 ]
     distribution: categorical
   opponent_pool_size:
-    values: [1, 5, 10]
+    values: [ 1, 5, 15 ]
     distribution: categorical
 early_terminate:
   type: hyperband

@@ -64,12 +64,12 @@ def train_mnk():
         "gamma": 0.99,
         "batch_size": 128,
         "n_steps": 512,
-        "training_iterations": 300,
+        "training_iterations": 750,
         "validation_interval": 5,
         "validation_episodes": 50,
         "benchmark_update_threshold": 0.65,
-        "opponent_pool_size": 1,
-        "num_envs": 8,
+        "opponent_pool_size": 5,
+        "num_envs": 12,
     }
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -121,59 +121,60 @@ def train_mnk():
 
         # Main training loop
         for i in range(run.config.training_iterations):
-            mean_reward, mean_length, actor_loss, critic_loss, entropy_loss = agent.learn(train_env)
-
-            print(f"Iteration {i + 1}: Mean reward = {mean_reward:.3f}, Mean length = {mean_length:.1f}")
-
-            run.log(
-                {
-                    "training/mean_reward": mean_reward,
-                    "training/mean_length": mean_length,
-                    "training/actor_loss": actor_loss,
-                    "training/critic_loss": critic_loss,
-                    "training/entropy_loss": entropy_loss,
-                },
-                step=i
-            )
-
-            # Update opponent pool with current agent every 5 iterations
-            if i > 0 and i % 2 == 0:
+            try:
                 add_agent_to_pool(agent, opponent_pool)
-
-                cleanup_opponent_pool(opponent_pool, run.config.opponent_pool_size, device)
-
-                # Select and set a new opponent for training
                 selected_opponent = select_opponent_from_pool(opponent_pool, obs_shape, action_dim, device)
                 if selected_opponent:
                     train_env.unwrapped.set_opponent(selected_opponent)
-                print(f"  Added new opponent to pool, now size: {len(opponent_pool)}")
-            #
-            # # Switch to different opponent occasionally
-            # else:
-            selected_opponent = select_opponent_from_pool(opponent_pool, obs_shape, action_dim, device)
-            if selected_opponent:
-                train_env.unwrapped.set_opponent(selected_opponent)
 
-            # Validate agent performance periodically
-            if i > 0 and i % run.config.validation_interval == 0:
-                print(f"--- Running validation at step {i} ---")
+                mean_reward, mean_length, actor_loss, critic_loss, entropy_loss = agent.learn(train_env)
+    
+                print(f"Iteration {i + 1}: Mean reward = {mean_reward:.3f}, Mean length = {mean_length:.1f}")
+    
+                run.log(
+                    {
+                        "training/mean_reward": mean_reward,
+                        "training/mean_length": mean_length,
+                        "training/actor_loss": actor_loss,
+                        "training/critic_loss": critic_loss,
+                        "training/entropy_loss": entropy_loss,
+                    },
+                    step=i
+                )
 
-                validation_res = run_validation(mnk, run.config.validation_episodes, agent, benchmark_policy, device, seed=i)
-                run.log(validation_res, step=i)
-
-                # Update benchmark if current agent performs better
-                if validation_res["validation/vs_benchmark/win_rate"] > run.config.benchmark_update_threshold:
-                    print(f"--- New benchmark agent at step {i}! ---")
-                    benchmark_policy = NNPolicy(deepcopy(agent.network))
-
-                    add_agent_to_pool(agent, opponent_pool)
-
-                    # Clean up the pool after adding benchmark
-                    cleanup_opponent_pool(opponent_pool, run.config.opponent_pool_size, device)
-
-                    save_benchmark_model(agent, run.name, i)
-
-                    run.log({"validation/new_benchmark_step": i}, step=i)
+                # Validate agent performance periodically
+                if i > 0 and i % run.config.validation_interval == 0:
+                    print(f"--- Running validation at step {i} ---")
+    
+                    validation_res = run_validation(mnk, run.config.validation_episodes, agent, benchmark_policy, device, seed=i)
+                    run.log(validation_res, step=i)
+    
+                    # Update benchmark if current agent performs better
+                    if validation_res["validation/vs_benchmark/win_rate"] > run.config.benchmark_update_threshold:
+                        print(f"--- New benchmark agent at step {i}! ---")
+                        benchmark_policy = NNPolicy(deepcopy(agent.network))
+    
+                        add_agent_to_pool(agent, opponent_pool)
+    
+                        # Clean up the pool after adding benchmark
+                        cleanup_opponent_pool(opponent_pool, run.config.opponent_pool_size, device)
+    
+                        save_benchmark_model(agent, run.name, i)
+    
+                        run.log({"validation/new_benchmark_step": i}, step=i)
+    
+            except Exception as e:
+                error_msg = f"Error in iteration {i}: {str(e)}"
+                print(error_msg)
+                import traceback
+                traceback.print_exc()
+                run.log({
+                    "error/iteration": i,
+                    "error/message": str(e),
+                    "error/traceback": traceback.format_exc()
+                }, step=i)
+                # Continue to next iteration or break if critical
+                continue
 
 
 def save_benchmark_model(agent, name, step):
