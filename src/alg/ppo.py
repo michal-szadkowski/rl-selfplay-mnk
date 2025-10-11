@@ -3,9 +3,20 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 from torch.distributions import Categorical
+from dataclasses import dataclass
 import numpy as np
 
 from .rollout_buffer import RolloutBuffer
+
+
+@dataclass
+class TrainingMetrics:
+    """Training metrics from a single PPO learning iteration."""
+    mean_reward: float
+    mean_length: float
+    actor_loss: float
+    critic_loss: float
+    entropy_loss: float
 
 
 class ActorCriticModule(nn.Module):
@@ -140,6 +151,9 @@ class PPOAgent:
         """
         The main training loop for the PPO agent, collecting rollouts from a
         vectorized environment.
+        
+        Returns:
+            TrainingMetrics: Object containing all training metrics
         """
         obs, _ = vec_env.reset()
         ep_rewards = []
@@ -185,9 +199,22 @@ class PPOAgent:
         # 4. Reset the buffer for the next rollout
         self.buffer.reset()
 
+        # Create and return TrainingMetrics object
         if len(ep_rewards) > 0:
-            return np.mean(ep_rewards), np.mean(ep_lengths), actor_loss, critic_loss, entropy_loss
-        return 0.0, 0.0, actor_loss, critic_loss, entropy_loss
+            return TrainingMetrics(
+                mean_reward=np.mean(ep_rewards),
+                mean_length=np.mean(ep_lengths),
+                actor_loss=actor_loss,
+                critic_loss=critic_loss,
+                entropy_loss=entropy_loss
+            )
+        return TrainingMetrics(
+            mean_reward=0.0,
+            mean_length=0.0,
+            actor_loss=actor_loss,
+            critic_loss=critic_loss,
+            entropy_loss=entropy_loss
+        )
 
     def update_networks(self):
         """

@@ -5,16 +5,15 @@ import torch
 import wandb
 from gymnasium.wrappers.vector import RecordEpisodeStatistics
 
-from alg.ppo import PPOAgent, ActorCriticModule
+from alg.ppo import PPOAgent, ActorCriticModule, TrainingMetrics
 from env.mnk_game_env import create_mnk_env
-from selfplay.policy import NNPolicy, VectorNNPolicy
+from selfplay.policy import NNPolicy
 from selfplay.vector_self_play_wrapper import VectorSelfPlayWrapper
 from selfplay.opponent_pool import OpponentPool
 from validation import run_validation
 
 
 def train_mnk():
-    # Configuration for wandb sweep - default parameters will be overridden by sweep
     default_config = {
         "mnk": (9, 9, 5),
         "learning_rate": 1e-4,
@@ -32,8 +31,9 @@ def train_mnk():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Using device: {device}")
 
-    # Initialize wandb - if running in sweep mode, config will be overridden by sweep values
-    with wandb.init(config=default_config, project="mnk_vector_a2c", group="vec", dir='./wnb') as run:
+    with wandb.init(
+        config=default_config, project="mnk_vector_a2c", group="vec", dir="./wnb"
+    ) as run:
         mnk = run.config.mnk
 
         def env_fn():
@@ -57,81 +57,106 @@ def train_mnk():
             gamma=run.config.gamma,
             batch_size=run.config.batch_size,
             device=device,
-            num_envs=run.config.num_envs
+            num_envs=run.config.num_envs,
         )
 
-        # Lambda for network creation
         network_creator = lambda: ActorCriticModule(obs_shape, action_dim)
-        
-        # Initialize opponent pool with new OpponentPool
-        opponent_pool = OpponentPool(network_creator, max_size=run.config.opponent_pool_size, device=device)
-        opponent_pool.add_opponent(agent.network)
 
-        # Set initial opponent for the training environment
-        initial_opponent = opponent_pool.get_latest_opponent()
-        train_env.unwrapped.set_opponent(initial_opponent)
-        
+        opponent_pool = OpponentPool(
+            network_creator, max_size=run.config.opponent_pool_size, device=device
+        )
+
         run.watch(agent.network)
 
-        # Create benchmark agent for validation
         benchmark_policy = NNPolicy(deepcopy(agent.network))
 
-        # Main training loop
         for i in range(run.config.training_iterations):
             try:
                 # Add agent to pool periodically
-                if i % 2 == 0:
+                if i % 3 == 0:
                     opponent_pool.add_opponent(agent.network)
-                
-                new_opponent = opponent_pool.sample_opponent()
-                if new_opponent:
-                    train_env.unwrapped.set_opponent(new_opponent)
 
-                mean_reward, mean_length, actor_loss, critic_loss, entropy_loss = agent.learn(train_env)
-    
-                print(f"Iteration {i}: Mean reward = {mean_reward:.3f}, Mean length = {mean_length:.1f}")
-    
-                run.log(
-                    {
-                        "training/mean_reward": mean_reward,
-                        "training/mean_length": mean_length,
-                        "training/actor_loss": actor_loss,
-                        "training/critic_loss": critic_loss,
-                        "training/entropy_loss": entropy_loss,
-                    },
-                    step=i
+                # Sample opponent
+                opponent, opponent_idx = opponent_pool.sample_opponent()
+                train_env.unwrapped.set_opponent(opponent)
+
+                # Train and get metrics
+                metrics = agent.learn(train_env)
+
+                # Update opponent statistics
+                # Agent's reward is opponent's negative reward (zero-sum game)
+                opponent_reward = -metrics.mean_reward
+                opponent_pool.update_opponent_stats(opponent_idx, opponent_reward)
+
+                print(
+                    f"Iteration {i}: Mean reward = {metrics.mean_reward:.3f}, Mean length = {metrics.mean_length:.1f}"
                 )
+
+                # Log pool statistics periodically
+                if i % 10 == 0:
+                    log_pool_stats(run, opponent_pool, i)
+
+                # Log training metrics
+                log_training_metrics(run, metrics, i)
 
                 # Validate agent performance periodically
                 if i > 0 and i % run.config.validation_interval == 0:
-                    print(f"--- Running validation at step {i} ---")
-    
-                    validation_res = run_validation(mnk, run.config.validation_episodes, agent, benchmark_policy, device, seed=i)
-                    run.log(validation_res, step=i)
-    
-                    # Update benchmark if current agent performs better
-                    if validation_res["validation/vs_benchmark/win_rate"] > run.config.benchmark_update_threshold:
-                        print(f"--- New benchmark agent at step {i}! ---")
-                        benchmark_policy = NNPolicy(deepcopy(agent.network))
-    
-                        opponent_pool.add_opponent(agent.network)
-    
-                        save_benchmark_model(agent, run.name or "", i)
-    
-                        run.log({"validation/new_benchmark_step": i}, step=i)
-    
+                    benchmark_policy = run_validation_and_update_benchmark(
+                        run,
+                        mnk,
+                        run.config.validation_episodes,
+                        agent,
+                        benchmark_policy,
+                        device,
+                        i,
+                        opponent_pool,
+                        run.config.benchmark_update_threshold,
+                    )
+
             except Exception as e:
                 error_msg = f"Error in iteration {i}: {str(e)}"
                 print(error_msg)
                 import traceback
+
                 traceback.print_exc()
-                run.log({
-                    "error/iteration": i,
-                    "error/message": str(e),
-                    "error/traceback": traceback.format_exc()
-                }, step=i)
+                run.log(
+                    {
+                        "error/iteration": i,
+                        "error/message": str(e),
+                        "error/traceback": traceback.format_exc(),
+                    },
+                    step=i,
+                )
                 # Continue to next iteration or break if critical
                 continue
+
+
+def run_validation_and_update_benchmark(
+    run,
+    mnk,
+    validation_episodes,
+    agent,
+    benchmark_policy,
+    device,
+    iteration,
+    opponent_pool,
+    benchmark_update_threshold,
+):
+    print(f"--- Running validation at step {iteration} ---")
+
+    validation_res = run_validation(
+        mnk, validation_episodes, agent, benchmark_policy, device, seed=iteration
+    )
+    run.log(validation_res, step=iteration)
+
+    if validation_res["validation/vs_benchmark/win_rate"] > benchmark_update_threshold:
+        print(f"--- New benchmark agent at step {iteration}! ---")
+        benchmark_policy = NNPolicy(deepcopy(agent.network))
+        opponent_pool.add_opponent(agent.network)
+        save_benchmark_model(agent, run.name or "", iteration)
+        run.log({"validation/new_benchmark_step": iteration}, step=iteration)
+
+    return benchmark_policy
 
 
 def save_benchmark_model(agent, name, step):
@@ -142,6 +167,34 @@ def save_benchmark_model(agent, name, step):
     model_path = os.path.join(model_dir, f"benchmark_step_{step}.pt")
     torch.save(agent.network.state_dict(), model_path)
     print(f"Saved new benchmark model to {model_path}")
+
+
+def log_training_metrics(run, metrics: TrainingMetrics, iteration):
+    """Log training metrics."""
+    run.log(
+        {
+            "training/mean_reward": metrics.mean_reward,
+            "training/mean_length": metrics.mean_length,
+            "training/actor_loss": metrics.actor_loss,
+            "training/critic_loss": metrics.critic_loss,
+            "training/entropy_loss": metrics.entropy_loss,
+        },
+        step=iteration,
+    )
+
+
+def log_pool_stats(run, opponent_pool, iteration):
+    """Log pool statistics."""
+    pool_stats = opponent_pool.get_pool_stats()
+    run.log(
+        {
+            "pool/size": pool_stats["size"],
+            "pool/avg_mean_reward": pool_stats["avg_mean_reward"],
+            "pool/avg_games_played": pool_stats["avg_games_played"],
+            "pool/total_games": pool_stats["total_games"],
+        },
+        step=iteration,
+    )
 
 
 if __name__ == "__main__":
