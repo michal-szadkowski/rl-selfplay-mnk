@@ -1,5 +1,4 @@
 import os
-import random
 from copy import deepcopy
 
 import torch
@@ -10,50 +9,8 @@ from alg.ppo import PPOAgent, ActorCriticModule
 from env.mnk_game_env import create_mnk_env
 from selfplay.policy import NNPolicy, VectorNNPolicy
 from selfplay.vector_self_play_wrapper import VectorSelfPlayWrapper
+from selfplay.opponent_pool import OpponentPool
 from validation import run_validation
-
-
-def cleanup_opponent_pool(opponent_pool, max_size, device):
-    """Remove oldest opponents to maintain pool size and free GPU memory."""
-    if len(opponent_pool) > max_size:
-        # Remove oldest opponents to maintain maximum size
-        excess_count = len(opponent_pool) - max_size
-        for _ in range(excess_count):
-            removed_opponent = opponent_pool.pop(0)
-            # Explicitly delete the removed opponent to free memory
-            del removed_opponent
-        import gc
-        gc.collect()
-        if device == "cuda":
-            torch.cuda.empty_cache()
-
-
-def create_opponent_from_state_dict(state_dict, obs_shape, action_dim, device):
-    """Create a VectorNNPolicy from a state dict, loading to the appropriate device."""
-    network = ActorCriticModule(obs_shape, action_dim)
-    network.load_state_dict(state_dict)
-    network.to(device)
-    return VectorNNPolicy(network, device=device)
-
-
-def add_agent_to_pool(agent, opponent_pool):
-    """Add current agent to the opponent pool as a state dict on CPU."""
-    new_opponent_state = deepcopy(agent.network.state_dict())
-    # Move to CPU to save GPU memory
-    new_opponent_state_cpu = {k: v.cpu() for k, v in new_opponent_state.items()}
-    opponent_pool.append(new_opponent_state_cpu)
-
-
-def select_opponent_from_pool(opponent_pool, obs_shape, action_dim, device):
-    """Select a random opponent from the pool and return it."""
-    # Find state dict opponents in the pool
-    state_dict_opponents = [op for op in opponent_pool if isinstance(op, dict)]
-    if state_dict_opponents:
-        selected_state = random.choice(state_dict_opponents)
-        return create_opponent_from_state_dict(
-            selected_state, obs_shape, action_dim, device
-        )
-    return None
 
 
 def train_mnk():
@@ -65,8 +22,8 @@ def train_mnk():
         "batch_size": 128,
         "n_steps": 512,
         "training_iterations": 750,
-        "validation_interval": 5,
-        "validation_episodes": 50,
+        "validation_interval": 10,
+        "validation_episodes": 100,
         "benchmark_update_threshold": 0.65,
         "opponent_pool_size": 5,
         "num_envs": 12,
@@ -103,17 +60,17 @@ def train_mnk():
             num_envs=run.config.num_envs
         )
 
-        # Initialize opponent pool with initial agent version
-        opponent_pool = []
-        add_agent_to_pool(agent, opponent_pool)
-
-        initial_opponent_for_env = create_opponent_from_state_dict(
-            opponent_pool[0], obs_shape, action_dim, device
-        )
+        # Lambda for network creation
+        network_creator = lambda: ActorCriticModule(obs_shape, action_dim)
+        
+        # Initialize opponent pool with new OpponentPool
+        opponent_pool = OpponentPool(network_creator, max_size=run.config.opponent_pool_size, device=device)
+        opponent_pool.add_opponent(agent.network)
 
         # Set initial opponent for the training environment
-        train_env.unwrapped.set_opponent(initial_opponent_for_env)
-
+        initial_opponent = opponent_pool.get_latest_opponent()
+        train_env.unwrapped.set_opponent(initial_opponent)
+        
         run.watch(agent.network)
 
         # Create benchmark agent for validation
@@ -122,14 +79,17 @@ def train_mnk():
         # Main training loop
         for i in range(run.config.training_iterations):
             try:
-                add_agent_to_pool(agent, opponent_pool)
-                selected_opponent = select_opponent_from_pool(opponent_pool, obs_shape, action_dim, device)
-                if selected_opponent:
-                    train_env.unwrapped.set_opponent(selected_opponent)
+                # Add agent to pool periodically
+                if i % 2 == 0:
+                    opponent_pool.add_opponent(agent.network)
+                
+                new_opponent = opponent_pool.sample_opponent()
+                if new_opponent:
+                    train_env.unwrapped.set_opponent(new_opponent)
 
                 mean_reward, mean_length, actor_loss, critic_loss, entropy_loss = agent.learn(train_env)
     
-                print(f"Iteration {i + 1}: Mean reward = {mean_reward:.3f}, Mean length = {mean_length:.1f}")
+                print(f"Iteration {i}: Mean reward = {mean_reward:.3f}, Mean length = {mean_length:.1f}")
     
                 run.log(
                     {
@@ -154,12 +114,9 @@ def train_mnk():
                         print(f"--- New benchmark agent at step {i}! ---")
                         benchmark_policy = NNPolicy(deepcopy(agent.network))
     
-                        add_agent_to_pool(agent, opponent_pool)
+                        opponent_pool.add_opponent(agent.network)
     
-                        # Clean up the pool after adding benchmark
-                        cleanup_opponent_pool(opponent_pool, run.config.opponent_pool_size, device)
-    
-                        save_benchmark_model(agent, run.name, i)
+                        save_benchmark_model(agent, run.name or "", i)
     
                         run.log({"validation/new_benchmark_step": i}, step=i)
     

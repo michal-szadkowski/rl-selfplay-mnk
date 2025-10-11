@@ -12,7 +12,7 @@ class RolloutBuffer:
         self.reset()
 
     def reset(self):
-        """Resetuje bufor."""
+        """Reset the buffer."""
         self.observations = torch.zeros((self.n_steps, self.num_envs, *self.obs_shape), dtype=torch.float32, device=self.device)
         self.actions = torch.zeros((self.n_steps, self.num_envs), dtype=torch.long, device=self.device)
         self.log_probs = torch.zeros((self.n_steps, self.num_envs), dtype=torch.float32, device=self.device)
@@ -25,7 +25,7 @@ class RolloutBuffer:
         self.ptr = 0
 
     def add(self, obs, action, reward, value, log_prob, done, action_mask):
-        """Dodaje batch przejść z jednego kroku czasowego (wektorowe środowiska)."""
+        """Add batch of transitions from one timestep (vectorized environments)."""
         if self.ptr >= self.n_steps:
             raise IndexError("Buffer is full.")
 
@@ -40,11 +40,11 @@ class RolloutBuffer:
 
     def compute_advantages_and_returns(self, last_values, gamma=0.99, gae_lambda=0.95):
         """
-        Oblicza GAE-Lambda i returns.
-        Zakładamy:
+        Compute GAE-Lambda and returns.
+        Assumptions:
         - self.values[t] = V(s_t)
-        - self.dones[t] = czy epizod zakończył się po kroku t (czyli czy s_{t+1} jest terminalne)
-        - last_values = V(s_T) dla ostatnich stanów (po rollout).
+        - self.dones[t] = whether episode ended after step t (i.e., whether s_{t+1} is terminal)
+        - last_values = V(s_T) for last states (after rollout).
         """
         last_values = torch.as_tensor(last_values, dtype=self.values.dtype,
                                       device=self.device).reshape(self.num_envs)
@@ -60,7 +60,7 @@ class RolloutBuffer:
             else:
                 next_values = self.values[t + 1]
 
-            # ważne: next_non_terminal odpowiada "czy s_{t+1} nie jest terminalne"
+            # important: next_non_terminal represents "whether s_{t+1} is not terminal"
             next_non_terminal = 1.0 - self.dones[t].to(dtype=self.rewards.dtype)
 
             delta = self.rewards[t] + gamma * next_values * next_non_terminal - self.values[t]

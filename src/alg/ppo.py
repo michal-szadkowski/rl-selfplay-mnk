@@ -72,7 +72,7 @@ class ActorCriticModule(nn.Module):
         logits = self.actor(features)
 
         if action_mask is not None:
-            # upewniamy się, że maska ma odpowiedni wymiar
+            # ensure mask has correct dimensions
             if action_mask.dim() == 1 and logits.dim() == 2:
                 action_mask = action_mask.unsqueeze(0)
 
