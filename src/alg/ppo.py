@@ -29,6 +29,13 @@ class ActorCriticModule(nn.Module):
         # Store action_dim for use in initialization
         self.action_dim = action_dim
 
+        # Architecture info for model export
+        self._architecture_name = "actor_critic"
+        self._architecture_params = {
+            "obs_shape": [int(x) for x in obs_shape],
+            "action_dim": int(action_dim)
+        }
+
         # Convolutional body
         self.shared_body = nn.Sequential(
             nn.Conv2d(in_channels=channels, out_channels=64, kernel_size=3, padding=1),

@@ -11,6 +11,7 @@ from selfplay.policy import NNPolicy
 from selfplay.vector_self_play_wrapper import VectorSelfPlayWrapper
 from selfplay.opponent_pool import OpponentPool
 from validation import run_validation
+from model_export import ModelExporter
 
 
 def train_mnk():
@@ -24,7 +25,7 @@ def train_mnk():
         "validation_interval": 50,
         "validation_episodes": 100,
         "benchmark_update_threshold": 0.65,
-        "opponent_pool_size": 10,
+        "opponent_pool_size": 15,
         "num_envs": 12,
     }
 
@@ -34,6 +35,9 @@ def train_mnk():
     with wandb.init(
         config=default_config, project="mnk_vector_a2c", group="vec", dir="./wnb"
     ) as run:
+        # Initialize model exporter
+        model_exporter = ModelExporter(run.name or None)
+
         mnk = run.config.mnk
 
         def env_fn():
@@ -110,7 +114,12 @@ def train_mnk():
                     ):
                         print(f"--- New benchmark agent at step {i}! ---")
                         benchmark_policy = NNPolicy(deepcopy(agent.network))
-                        save_benchmark_model(agent, run.name or "", i)
+
+                        # Export model that broke benchmark
+                        model_exporter.export_model(
+                            agent.network, i, is_benchmark_breaker=True
+                        )
+
                         run.log({"validation/new_benchmark_step": i}, step=i)
 
             except Exception as e:
@@ -142,16 +151,6 @@ def should_add_to_pool(metrics, iteration):
         return True
 
     return False
-
-
-def save_benchmark_model(agent, name, step):
-    """Saves the agent's network as a new benchmark model."""
-    dirname, _ = os.path.split(os.path.abspath(__file__))
-    model_dir = os.path.join(dirname, "models", name)
-    os.makedirs(model_dir, exist_ok=True)
-    model_path = os.path.join(model_dir, f"benchmark_step_{step}.pt")
-    torch.save(agent.network.state_dict(), model_path)
-    print(f"Saved new benchmark model to {model_path}")
 
 
 def log_training_metrics(run, metrics: TrainingMetrics, iteration):

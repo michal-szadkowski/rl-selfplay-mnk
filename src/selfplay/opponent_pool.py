@@ -40,7 +40,7 @@ class OpponentPool:
 
         opponent_data = {
             "state_dict": state_dict_cpu,
-            "mean_reward": 1,
+            "mean_reward": 0.0,
             "games_played": 0,
             "total_reward": 0.0,
         }
