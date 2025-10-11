@@ -12,6 +12,7 @@ from .rollout_buffer import RolloutBuffer
 @dataclass
 class TrainingMetrics:
     """Training metrics from a single PPO learning iteration."""
+
     mean_reward: float
     mean_length: float
     actor_loss: float
@@ -50,10 +51,7 @@ class ActorCriticModule(nn.Module):
         )
 
         self.critic = nn.Sequential(
-            nn.Linear(flattened_size, 1024),
-            nn.Tanh(),
-            nn.Linear(1024, 1),
-            nn.Tanh()
+            nn.Linear(flattened_size, 1024), nn.Tanh(), nn.Linear(1024, 1), nn.Tanh()
         )
 
         self._initialize_weights()
@@ -61,7 +59,7 @@ class ActorCriticModule(nn.Module):
     def _initialize_weights(self):
         for module in self.modules():
             if isinstance(module, nn.Conv2d):
-                nn.init.orthogonal_(module.weight, gain=nn.init.calculate_gain('relu'))
+                nn.init.orthogonal_(module.weight, gain=nn.init.calculate_gain("relu"))
                 if module.bias is not None:
                     nn.init.zeros_(module.bias)
 
@@ -73,7 +71,7 @@ class ActorCriticModule(nn.Module):
                     nn.init.orthogonal_(module.weight, gain=0.01)
 
                 else:
-                    nn.init.orthogonal_(module.weight, gain=nn.init.calculate_gain('relu'))
+                    nn.init.orthogonal_(module.weight, gain=nn.init.calculate_gain("relu"))
 
                 if module.bias is not None:
                     nn.init.zeros_(module.bias)
@@ -100,21 +98,23 @@ class ActorCriticModule(nn.Module):
 
 
 class PPOAgent:
-    def __init__(self,
-                 obs_shape,
-                 action_dim,
-                 network,
-                 n_steps: int,
-                 learning_rate=7e-4,
-                 gamma=0.99,
-                 gae_lambda=0.95,
-                 clip_range=0.2,
-                 ppo_epochs=4,
-                 batch_size=64,
-                 value_coef=0.5,
-                 entropy_coef=0.01,
-                 device='cpu',
-                 num_envs=1):
+    def __init__(
+        self,
+        obs_shape,
+        action_dim,
+        network,
+        n_steps: int,
+        learning_rate=7e-4,
+        gamma=0.99,
+        gae_lambda=0.95,
+        clip_range=0.2,
+        ppo_epochs=4,
+        batch_size=64,
+        value_coef=0.5,
+        entropy_coef=0.01,
+        device="cpu",
+        num_envs=1,
+    ):
         """
         Initializes the PPO agent.
 
@@ -143,15 +143,19 @@ class PPOAgent:
         self.entropy_coef = entropy_coef
         self.num_envs = num_envs
         self.n_steps = n_steps
-        self.optimizer = optim.Adam(self.network.parameters(), lr=learning_rate)
+        self.optimizer = optim.AdamW(
+            self.network.parameters(), lr=learning_rate, weight_decay=1e-4
+        )
 
-        self.buffer = RolloutBuffer(self.n_steps, self.num_envs, obs_shape, action_dim, device=self.device)
+        self.buffer = RolloutBuffer(
+            self.n_steps, self.num_envs, obs_shape, action_dim, device=self.device
+        )
 
     def learn(self, vec_env):
         """
         The main training loop for the PPO agent, collecting rollouts from a
         vectorized environment.
-        
+
         Returns:
             TrainingMetrics: Object containing all training metrics
         """
@@ -162,17 +166,26 @@ class PPOAgent:
         for _ in range(self.buffer.n_steps):
             # 1. Collect one step of the rollout from all parallel environments
             observation = obs["observation"]
-            action_mask = torch.as_tensor(obs["action_mask"], dtype=torch.bool, device=self.device)
+            action_mask = torch.as_tensor(
+                obs["action_mask"], dtype=torch.bool, device=self.device
+            )
 
             with torch.no_grad():
-                dist, values = self.network(torch.as_tensor(observation, dtype=torch.float32, device=self.device), action_mask)
+                dist, values = self.network(
+                    torch.as_tensor(observation, dtype=torch.float32, device=self.device),
+                    action_mask,
+                )
                 actions = dist.sample()
                 log_probs = dist.log_prob(actions)
 
-            next_obs, rewards, terminateds, truncateds, infos = vec_env.step(actions.cpu().numpy())
+            next_obs, rewards, terminateds, truncateds, infos = vec_env.step(
+                actions.cpu().numpy()
+            )
             dones = terminateds | truncateds
 
-            self.buffer.add(observation, actions, rewards, values, log_probs, dones, action_mask)
+            self.buffer.add(
+                observation, actions, rewards, values, log_probs, dones, action_mask
+            )
 
             obs = next_obs
 
@@ -188,7 +201,9 @@ class PPOAgent:
         # 2. Compute advantages and returns for the full rollout
         with torch.no_grad():
             # Get the value of the last observation in each environment
-            _, last_values_tensor = self.network(torch.as_tensor(obs["observation"], dtype=torch.float32, device=self.device))
+            _, last_values_tensor = self.network(
+                torch.as_tensor(obs["observation"], dtype=torch.float32, device=self.device)
+            )
             last_values = last_values_tensor.view(self.num_envs)
 
         self.buffer.compute_advantages_and_returns(last_values, self.gamma, self.gae_lambda)
@@ -206,14 +221,14 @@ class PPOAgent:
                 mean_length=np.mean(ep_lengths),
                 actor_loss=actor_loss,
                 critic_loss=critic_loss,
-                entropy_loss=entropy_loss
+                entropy_loss=entropy_loss,
             )
         return TrainingMetrics(
             mean_reward=0.0,
             mean_length=0.0,
             actor_loss=actor_loss,
             critic_loss=critic_loss,
-            entropy_loss=entropy_loss
+            entropy_loss=entropy_loss,
         )
 
     def update_networks(self):
@@ -231,7 +246,15 @@ class PPOAgent:
             data_loader = self.buffer.get_data_loader(self.batch_size)
 
             # Iterate over mini-batches in this epoch
-            for observations, actions, old_log_probs, returns, advantages, action_masks, old_values in data_loader:
+            for (
+                observations,
+                actions,
+                old_log_probs,
+                returns,
+                advantages,
+                action_masks,
+                old_values,
+            ) in data_loader:
                 dist, values = self.network(observations, action_masks)
 
                 # Calculate new log probabilities and entropy
@@ -243,7 +266,10 @@ class PPOAgent:
 
                 # PPO Clipped Objective
                 surr1 = ratio * advantages
-                surr2 = torch.clamp(ratio, 1.0 - self.clip_range, 1.0 + self.clip_range) * advantages
+                surr2 = (
+                    torch.clamp(ratio, 1.0 - self.clip_range, 1.0 + self.clip_range)
+                    * advantages
+                )
                 actor_loss = -torch.min(surr1, surr2).mean()
 
                 # Critic loss (value function loss)
@@ -253,7 +279,11 @@ class PPOAgent:
                 entropy_loss = -entropy
 
                 # Total loss with coefficients
-                total_loss = actor_loss + self.value_coef * critic_loss + self.entropy_coef * entropy_loss
+                total_loss = (
+                    actor_loss
+                    + self.value_coef * critic_loss
+                    + self.entropy_coef * entropy_loss
+                )
 
                 self.optimizer.zero_grad()
                 total_loss.backward()

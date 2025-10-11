@@ -16,15 +16,15 @@ from validation import run_validation
 def train_mnk():
     default_config = {
         "mnk": (9, 9, 5),
-        "learning_rate": 1e-4,
+        "learning_rate": 3e-4,
         "gamma": 0.99,
         "batch_size": 128,
         "n_steps": 512,
-        "training_iterations": 750,
-        "validation_interval": 10,
+        "training_iterations": 4000,
+        "validation_interval": 50,
         "validation_episodes": 100,
         "benchmark_update_threshold": 0.65,
-        "opponent_pool_size": 5,
+        "opponent_pool_size": 10,
         "num_envs": 12,
     }
 
@@ -59,6 +59,7 @@ def train_mnk():
             device=device,
             num_envs=run.config.num_envs,
         )
+        run.watch(agent.network)
 
         network_creator = lambda: ActorCriticModule(obs_shape, action_dim)
 
@@ -66,16 +67,12 @@ def train_mnk():
             network_creator, max_size=run.config.opponent_pool_size, device=device
         )
 
-        run.watch(agent.network)
-
         benchmark_policy = NNPolicy(deepcopy(agent.network))
+
+        opponent_pool.add_opponent(agent.network)
 
         for i in range(run.config.training_iterations):
             try:
-                # Add agent to pool periodically
-                if i % 3 == 0:
-                    opponent_pool.add_opponent(agent.network)
-
                 # Sample opponent
                 opponent, opponent_idx = opponent_pool.sample_opponent()
                 train_env.unwrapped.set_opponent(opponent)
@@ -87,31 +84,34 @@ def train_mnk():
                 # Agent's reward is opponent's negative reward (zero-sum game)
                 opponent_reward = -metrics.mean_reward
                 opponent_pool.update_opponent_stats(opponent_idx, opponent_reward)
+                log_pool_stats(run, opponent_pool, i)
 
-                print(
-                    f"Iteration {i}: Mean reward = {metrics.mean_reward:.3f}, Mean length = {metrics.mean_length:.1f}"
-                )
+                if should_add_to_pool(metrics, i):
+                    opponent_pool.add_opponent(agent.network)
 
-                # Log pool statistics periodically
-                if i % 10 == 0:
-                    log_pool_stats(run, opponent_pool, i)
-
-                # Log training metrics
                 log_training_metrics(run, metrics, i)
 
                 # Validate agent performance periodically
                 if i > 0 and i % run.config.validation_interval == 0:
-                    benchmark_policy = run_validation_and_update_benchmark(
-                        run,
+                    print(f"--- Running validation at step {i} ---")
+                    validation_res = run_validation(
                         mnk,
                         run.config.validation_episodes,
                         agent,
                         benchmark_policy,
                         device,
-                        i,
-                        opponent_pool,
-                        run.config.benchmark_update_threshold,
+                        seed=i,
                     )
+                    run.log(validation_res, step=i)
+
+                    if (
+                        validation_res["validation/vs_benchmark/win_rate"]
+                        > run.config.benchmark_update_threshold
+                    ):
+                        print(f"--- New benchmark agent at step {i}! ---")
+                        benchmark_policy = NNPolicy(deepcopy(agent.network))
+                        save_benchmark_model(agent, run.name or "", i)
+                        run.log({"validation/new_benchmark_step": i}, step=i)
 
             except Exception as e:
                 error_msg = f"Error in iteration {i}: {str(e)}"
@@ -131,32 +131,17 @@ def train_mnk():
                 continue
 
 
-def run_validation_and_update_benchmark(
-    run,
-    mnk,
-    validation_episodes,
-    agent,
-    benchmark_policy,
-    device,
-    iteration,
-    opponent_pool,
-    benchmark_update_threshold,
-):
-    print(f"--- Running validation at step {iteration} ---")
+def should_add_to_pool(metrics, iteration):
+    """Simple but effective opponent addition."""
+    # Add good performing agents
+    if metrics.mean_reward > 0.1:
+        return True
 
-    validation_res = run_validation(
-        mnk, validation_episodes, agent, benchmark_policy, device, seed=iteration
-    )
-    run.log(validation_res, step=iteration)
+    # Add periodically for diversity (but less frequently)
+    if iteration % 15 == 0:
+        return True
 
-    if validation_res["validation/vs_benchmark/win_rate"] > benchmark_update_threshold:
-        print(f"--- New benchmark agent at step {iteration}! ---")
-        benchmark_policy = NNPolicy(deepcopy(agent.network))
-        opponent_pool.add_opponent(agent.network)
-        save_benchmark_model(agent, run.name or "", iteration)
-        run.log({"validation/new_benchmark_step": iteration}, step=iteration)
-
-    return benchmark_policy
+    return False
 
 
 def save_benchmark_model(agent, name, step):
@@ -171,6 +156,9 @@ def save_benchmark_model(agent, name, step):
 
 def log_training_metrics(run, metrics: TrainingMetrics, iteration):
     """Log training metrics."""
+    print(
+        f"Iteration {iteration}: Mean reward = {metrics.mean_reward:.3f}, Mean length = {metrics.mean_length:.1f}"
+    )
     run.log(
         {
             "training/mean_reward": metrics.mean_reward,
