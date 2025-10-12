@@ -18,3 +18,4 @@ videos
 .idea
 *.pt
 models/*
+comparison_results

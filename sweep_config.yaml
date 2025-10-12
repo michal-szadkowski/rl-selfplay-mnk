@@ -1,4 +1,4 @@
-# WandB Sweep Configuration for MNK Game A2C Training
+# WandB Sweep Configuration for MNK Game PPO Training (Local GTX 1050)
 program: src/vec_train_mnk.py
 method: bayes  # Options: grid, random, bayes
 metric:
@@ -6,22 +6,17 @@ metric:
   goal: maximize
 parameters:
   learning_rate:
-    min: 0.00001
+    min: 0.00005
     max: 0.001
     distribution: log_uniform_values
   gamma:
     min: 0.95
-    max: 0.995
+    max: 0.999
     distribution: uniform
   batch_size:
-    values: [ 32, 64, 128 ]
-    distribution: categorical
+    values: [64, 128, 256]
   opponent_pool_size:
-    values: [ 1, 5, 15 ]
-    distribution: categorical
-early_terminate:
-  type: hyperband
-  min_iter: 100
+    values: [3, 5, 8, 10]
 command:
   - ${env}
   - .venv/bin/python
