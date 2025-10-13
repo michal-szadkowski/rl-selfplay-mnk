@@ -16,12 +16,17 @@ class ModelExporter:
         """Generate timestamp in format YYYYMMDD_HHMMSS"""
         return datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    def export_model(self, network: torch.nn.Module, iteration: int,
-                    is_benchmark_breaker: bool = False) -> str:
+    def export_model(
+        self, network: torch.nn.Module, iteration: int, is_benchmark_breaker: bool = False
+    ) -> str:
         """Export a model with automatic architecture detection"""
         # Auto-detect architecture from model instance
-        if not hasattr(network, '_architecture_name') or not hasattr(network, '_architecture_params'):
-            raise ValueError("Model must have _architecture_name and _architecture_params attributes for export")
+        if not hasattr(network, "_architecture_name") or not hasattr(
+            network, "_architecture_params"
+        ):
+            raise ValueError(
+                "Model must have _architecture_name and _architecture_params attributes for export"
+            )
 
         model_id = f"model_{iteration:05d}"
         model_file = f"{model_id}.pt"
@@ -39,17 +44,19 @@ class ModelExporter:
             "iteration": iteration,
             "architecture": {
                 "name": network._architecture_name,
-                "params": network._architecture_params
+                "params": network._architecture_params,
             },
             "export_timestamp": datetime.now().isoformat(),
             "is_benchmark_breaker": is_benchmark_breaker,
-            "run_name": self.run_name
+            "run_name": self.run_name,
         }
 
-        with open(metadata_path, 'w') as f:
+        with open(metadata_path, "w") as f:
             json.dump(metadata, f, indent=2)
 
-        print(f"Exported model {model_id} (architecture: {network._architecture_name}) to {model_path}")
+        print(
+            f"Exported model {model_id} (architecture: {network._architecture_name}) to {model_path}"
+        )
         return model_id
 
     def load_model(self, model_id: str, device: str = "cpu") -> torch.nn.Module:
@@ -81,7 +88,7 @@ class ModelExporter:
         if not os.path.exists(metadata_path):
             return None
 
-        with open(metadata_path, 'r') as f:
+        with open(metadata_path, "r") as f:
             return json.load(f)
 
 
@@ -90,7 +97,9 @@ def create_model_from_architecture(architecture_name: str, **kwargs) -> torch.nn
     if architecture_name == "actor_critic":
         return ActorCriticModule(**kwargs)
     else:
-        raise ValueError(f"Unknown architecture: {architecture_name}. Known architectures: actor_critic")
+        raise ValueError(
+            f"Unknown architecture: {architecture_name}. Known architectures: actor_critic"
+        )
 
 
 def load_any_model(model_dir: str, model_id: str, device: str = "cpu") -> torch.nn.Module:
@@ -100,7 +109,7 @@ def load_any_model(model_dir: str, model_id: str, device: str = "cpu") -> torch.
     if not os.path.exists(metadata_path):
         raise FileNotFoundError(f"Metadata for model {model_id} not found in {model_dir}")
 
-    with open(metadata_path, 'r') as f:
+    with open(metadata_path, "r") as f:
         metadata = json.load(f)
 
     # Create model from architecture
@@ -129,11 +138,10 @@ def get_models_from_directory(model_dir: str) -> List[Dict[str, Any]]:
 
     for filename in os.listdir(model_dir):
         if filename.endswith(".json"):
-            model_id = filename[:-5]  # Remove .json
             metadata_path = os.path.join(model_dir, filename)
 
             try:
-                with open(metadata_path, 'r') as f:
+                with open(metadata_path, "r") as f:
                     metadata = json.load(f)
                     models.append(metadata)
             except (json.JSONDecodeError, FileNotFoundError):

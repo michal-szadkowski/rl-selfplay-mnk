@@ -17,15 +17,16 @@ from model_export import ModelExporter
 def train_mnk():
     default_config = {
         "mnk": (9, 9, 5),
-        "learning_rate": 3e-4,
+        "learning_rate": 1e-4,
         "gamma": 0.99,
-        "batch_size": 128,
+        "batch_size": 256,
         "n_steps": 512,
-        "training_iterations": 4000,
+        "ppo_epochs": 4,
+        "training_iterations": 12000,
         "validation_interval": 50,
         "validation_episodes": 100,
         "benchmark_update_threshold": 0.65,
-        "opponent_pool_size": 15,
+        "opponent_pool_size": 5,
         "num_envs": 12,
     }
 
@@ -62,6 +63,7 @@ def train_mnk():
             batch_size=run.config.batch_size,
             device=device,
             num_envs=run.config.num_envs,
+            ppo_epochs=run.config.ppo_epochs,
         )
         run.watch(agent.network)
 

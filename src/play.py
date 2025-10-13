@@ -1,10 +1,10 @@
 import argparse
 import torch
 
-from env.mnk_game_env import create_mnk_env
-from env.mnk_game import Color
-from alg.ppo import ActorCriticModule
-from selfplay.policy import Policy, NNPolicy, RandomPolicy
+from .env.mnk_game_env import create_mnk_env
+from .env.mnk_game import Color
+from .alg.ppo import ActorCriticModule
+from .selfplay.policy import Policy, NNPolicy, RandomPolicy
 
 
 class HumanPolicy(Policy):
