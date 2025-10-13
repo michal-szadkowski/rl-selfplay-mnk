@@ -4,8 +4,8 @@ from typing import Dict, Any, Optional
 import numpy as np
 from pettingzoo.utils.env import AECEnv
 
-from .env.mnk_game_env import create_mnk_env
-from .selfplay.policy import NNPolicy, RandomPolicy, Policy
+from env.mnk_game_env import create_mnk_env
+from selfplay.policy import NNPolicy, RandomPolicy, Policy
 
 
 def play_single_episode(

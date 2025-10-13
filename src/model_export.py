@@ -3,7 +3,7 @@ import json
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 import torch
-from .alg.ppo import ActorCriticModule
+from alg.ppo import ActorCriticModule
 
 
 class ModelExporter:
