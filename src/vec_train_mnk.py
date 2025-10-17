@@ -18,16 +18,16 @@ def train_mnk():
     default_config = {
         "mnk": (9, 9, 5),
         "learning_rate": 1e-4,
-        "gamma": 0.99,
+        "gamma": 0.97,
         "batch_size": 256,
-        "n_steps": 512,
+        "n_steps": 256,
         "ppo_epochs": 4,
-        "training_iterations": 12000,
+        "total_environment_steps": 256 * 16 * 12000,
         "validation_interval": 50,
         "validation_episodes": 100,
         "benchmark_update_threshold": 0.65,
-        "opponent_pool_size": 5,
-        "num_envs": 12,
+        "opponent_pool_size": 1,
+        "num_envs": 16,
     }
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -77,7 +77,10 @@ def train_mnk():
 
         opponent_pool.add_opponent(agent.network)
 
-        for i in range(run.config.training_iterations):
+        steps_per_iteration = run.config.num_envs * run.config.n_steps
+        total_iterations = run.config.total_environment_steps // steps_per_iteration
+
+        for i in range(total_iterations):
             try:
                 # Sample opponent
                 opponent, opponent_idx = opponent_pool.sample_opponent()
@@ -86,20 +89,26 @@ def train_mnk():
                 # Train and get metrics
                 metrics = agent.learn(train_env)
 
+                # Calculate current environment steps for logging
+                current_env_steps = (i + 1) * steps_per_iteration
+
                 # Update opponent statistics
                 # Agent's reward is opponent's negative reward (zero-sum game)
                 opponent_reward = -metrics.mean_reward
                 opponent_pool.update_opponent_stats(opponent_idx, opponent_reward)
-                log_pool_stats(run, opponent_pool, i)
+
+                log_pool_stats(run, opponent_pool, current_env_steps)
 
                 if should_add_to_pool(metrics, i):
                     opponent_pool.add_opponent(agent.network)
 
-                log_training_metrics(run, metrics, i)
+                log_training_metrics(run, metrics, i, current_env_steps)
 
                 # Validate agent performance periodically
                 if i > 0 and i % run.config.validation_interval == 0:
-                    print(f"--- Running validation at step {i} ---")
+                    print(
+                        f"--- Running validation at step {i} ({current_env_steps:,} env steps) ---"
+                    )
                     validation_res = run_validation(
                         mnk,
                         run.config.validation_episodes,
@@ -108,13 +117,15 @@ def train_mnk():
                         device,
                         seed=i,
                     )
-                    run.log(validation_res, step=i)
+                    run.log(validation_res, step=current_env_steps)
 
                     if (
                         validation_res["validation/vs_benchmark/win_rate"]
                         > run.config.benchmark_update_threshold
                     ):
-                        print(f"--- New benchmark agent at step {i}! ---")
+                        print(
+                            f"--- New benchmark agent at step {i} ({current_env_steps:,} env steps)! ---"
+                        )
                         benchmark_policy = NNPolicy(deepcopy(agent.network))
 
                         # Export model that broke benchmark
@@ -122,7 +133,7 @@ def train_mnk():
                             agent.network, i, is_benchmark_breaker=True
                         )
 
-                        run.log({"validation/new_benchmark_step": i}, step=i)
+                        run.log({"validation/new_benchmark_step": i}, step=current_env_steps)
 
             except Exception as e:
                 error_msg = f"Error in iteration {i}: {str(e)}"
@@ -136,7 +147,7 @@ def train_mnk():
                         "error/message": str(e),
                         "error/traceback": traceback.format_exc(),
                     },
-                    step=i,
+                    step=current_env_steps,
                 )
                 # Continue to next iteration or break if critical
                 continue
@@ -155,10 +166,10 @@ def should_add_to_pool(metrics, iteration):
     return False
 
 
-def log_training_metrics(run, metrics: TrainingMetrics, iteration):
+def log_training_metrics(run, metrics: TrainingMetrics, iteration, env_steps):
     """Log training metrics."""
     print(
-        f"Iteration {iteration}: Mean reward = {metrics.mean_reward:.3f}, Mean length = {metrics.mean_length:.1f}"
+        f"Iteration {iteration} ({env_steps:,} env steps): Mean reward = {metrics.mean_reward:.3f}, Mean length = {metrics.mean_length:.1f}"
     )
     run.log(
         {
@@ -168,11 +179,11 @@ def log_training_metrics(run, metrics: TrainingMetrics, iteration):
             "training/critic_loss": metrics.critic_loss,
             "training/entropy_loss": metrics.entropy_loss,
         },
-        step=iteration,
+        step=env_steps,
     )
 
 
-def log_pool_stats(run, opponent_pool, iteration):
+def log_pool_stats(run, opponent_pool, env_steps):
     """Log pool statistics."""
     pool_stats = opponent_pool.get_pool_stats()
     run.log(
@@ -182,7 +193,7 @@ def log_pool_stats(run, opponent_pool, iteration):
             "pool/avg_games_played": pool_stats["avg_games_played"],
             "pool/total_games": pool_stats["total_games"],
         },
-        step=iteration,
+        step=env_steps,
     )
 
 
