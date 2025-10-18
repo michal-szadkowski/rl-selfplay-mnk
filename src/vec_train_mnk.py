@@ -7,7 +7,7 @@ from gymnasium.wrappers.vector import RecordEpisodeStatistics
 
 from alg.ppo import PPOAgent, ActorCriticModule, TrainingMetrics
 from env.mnk_game_env import create_mnk_env
-from selfplay.policy import NNPolicy
+from selfplay.policy import NNPolicy, VectorNNPolicy
 from selfplay.vector_self_play_wrapper import VectorSelfPlayWrapper
 from selfplay.opponent_pool import OpponentPool
 from validation import run_validation
@@ -34,7 +34,9 @@ def train_mnk():
     print(f"Using device: {device}")
 
     with wandb.init(
-        config=default_config, project="mnk_vector_a2c", group="vec", dir="./wnb"
+        config=default_config,
+        project="mnk_vector_a2c",
+        group="vec",
     ) as run:
         # Initialize model exporter
         model_exporter = ModelExporter(run.name or None)
@@ -67,40 +69,20 @@ def train_mnk():
         )
         run.watch(agent.network)
 
-        network_creator = lambda: ActorCriticModule(obs_shape, action_dim)
-
-        opponent_pool = OpponentPool(
-            network_creator, max_size=run.config.opponent_pool_size, device=device
-        )
-
         benchmark_policy = NNPolicy(deepcopy(agent.network))
-
-        opponent_pool.add_opponent(agent.network)
 
         steps_per_iteration = run.config.num_envs * run.config.n_steps
         total_iterations = run.config.total_environment_steps // steps_per_iteration
 
         for i in range(total_iterations):
+            current_env_steps = (i + 1) * steps_per_iteration
+
             try:
-                # Sample opponent
-                opponent, opponent_idx = opponent_pool.sample_opponent()
+                opponent = VectorNNPolicy(deepcopy(agent.network))
                 train_env.unwrapped.set_opponent(opponent)
 
                 # Train and get metrics
                 metrics = agent.learn(train_env)
-
-                # Calculate current environment steps for logging
-                current_env_steps = (i + 1) * steps_per_iteration
-
-                # Update opponent statistics
-                # Agent's reward is opponent's negative reward (zero-sum game)
-                opponent_reward = -metrics.mean_reward
-                opponent_pool.update_opponent_stats(opponent_idx, opponent_reward)
-
-                log_pool_stats(run, opponent_pool, current_env_steps)
-
-                if should_add_to_pool(metrics, i):
-                    opponent_pool.add_opponent(agent.network)
 
                 log_training_metrics(run, metrics, i, current_env_steps)
 

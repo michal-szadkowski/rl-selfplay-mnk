@@ -66,17 +66,16 @@ class MnkEnv(AECEnv):
         return self.action_spaces[agent]
 
     def observe(self, agent):
-        return self.observations[agent]
+        action_mask = (~(self.game.black | self.game.white)).flatten()
 
-    def set_observations(self):
-        self.observations = {
-            agent: {
-                "observation": self.game.board(
-                    Color.Black if agent == "black" else Color.White
-                ).astype(np.int8),
-                "action_mask": (~(self.game.black | self.game.white)).flatten(),
-            }
-            for agent in self.agents
+        if agent == "black":
+            board = np.stack([self.game.black, self.game.white])
+        else:
+            board = np.stack([self.game.white, self.game.black])
+
+        return {
+            "observation": board.astype(np.int8),
+            "action_mask": action_mask,
         }
 
     def reset(self, seed=None, options=None):
@@ -92,8 +91,6 @@ class MnkEnv(AECEnv):
         self.truncations = {agent: False for agent in self.agents}
 
         self.infos = {agent: {} for agent in self.agents}
-
-        self.set_observations()
 
         self._agent_selector = AgentSelector(self.agents)
         self.agent_selection = self._agent_selector.next()
@@ -128,8 +125,6 @@ class MnkEnv(AECEnv):
         self.agent_selection = self._agent_selector.next()
 
         self._accumulate_rewards()
-
-        self.set_observations()
 
         if self.render_mode == "human":
             self.render(act)

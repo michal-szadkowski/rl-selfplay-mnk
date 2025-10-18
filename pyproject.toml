@@ -12,6 +12,7 @@ dependencies = [
     "kaleido>=1.1.0",
     "matplotlib>=3.10.5",
     "moviepy>=2.2.1",
+    "numba>=0.60.0",
     "numpy>=2.3.2",
     "pettingzoo>=1.25.0",
     "plotly>=6.3.1",

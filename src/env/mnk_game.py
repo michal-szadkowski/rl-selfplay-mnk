@@ -1,5 +1,6 @@
 from enum import Enum
 import numpy as np
+from numba import jit
 
 Color = Enum("Color", [("Black", 0), ("White", 1)])
 
@@ -48,33 +49,88 @@ class MnkGame:
         else:
             board = self.white
 
-        return (
-            self._count_in_line(x, y, 1, 0, board) >= self.k
-            or self._count_in_line(x, y, 0, 1, board) >= self.k
-            or self._count_in_line(x, y, 1, 1, board) >= self.k
-            or self._count_in_line(x, y, 1, -1, board) >= self.k
-        )
+        return _check_win_numba(board, x, y, self.k, self.m, self.n)
 
-    def _count_in_line(self, x, y, dx, dy, board):
-        return (
-            self._count_direction(x, y, dx, dy, board)
-            + self._count_direction(x, y, -dx, -dy, board)
-            - 1
-        )
 
-    def _count_direction(self, x, y, dx, dy, board):
-        sum = 0
-        for i in range(self.k):
-            x_cur = x + i * dx
-            y_cur = y + i * dy
+@jit(nopython=True)
+def _check_win_numba(board, x, y, k, m, n):
+    """
+    Numba-compiled win checking function.
+    """
+    count = 1  # Current piece
 
-            if x_cur < 0 or x_cur >= self.m:
-                break
-            if y_cur < 0 or y_cur >= self.n:
-                break
+    # Check horizontal (dx=1, dy=0)
+    # Positive direction
+    for i in range(1, k):
+        x_cur = x + i
+        if x_cur >= m or board[x_cur, y] == 0:
+            break
+        count += 1
+    # Negative direction
+    for i in range(1, k):
+        x_cur = x - i
+        if x_cur < 0 or board[x_cur, y] == 0:
+            break
+        count += 1
+    if count >= k:
+        return True
 
-            if board[x_cur, y_cur] == 1:
-                sum += 1
-            else:
-                break
-        return sum
+    # Reset count for vertical
+    count = 1
+    # Check vertical (dx=0, dy=1)
+    # Positive direction
+    for i in range(1, k):
+        y_cur = y + i
+        if y_cur >= n or board[x, y_cur] == 0:
+            break
+        count += 1
+    # Negative direction
+    for i in range(1, k):
+        y_cur = y - i
+        if y_cur < 0 or board[x, y_cur] == 0:
+            break
+        count += 1
+    if count >= k:
+        return True
+
+    # Reset count for diagonal
+    count = 1
+    # Check diagonal (dx=1, dy=1)
+    # Positive direction
+    for i in range(1, k):
+        x_cur = x + i
+        y_cur = y + i
+        if x_cur >= m or y_cur >= n or board[x_cur, y_cur] == 0:
+            break
+        count += 1
+    # Negative direction
+    for i in range(1, k):
+        x_cur = x - i
+        y_cur = y - i
+        if x_cur < 0 or y_cur < 0 or board[x_cur, y_cur] == 0:
+            break
+        count += 1
+    if count >= k:
+        return True
+
+    # Reset count for anti-diagonal
+    count = 1
+    # Check anti-diagonal (dx=1, dy=-1)
+    # Positive direction
+    for i in range(1, k):
+        x_cur = x + i
+        y_cur = y - i
+        if x_cur >= m or y_cur < 0 or board[x_cur, y_cur] == 0:
+            break
+        count += 1
+    # Negative direction
+    for i in range(1, k):
+        x_cur = x - i
+        y_cur = y + i
+        if x_cur < 0 or y_cur >= n or board[x_cur, y_cur] == 0:
+            break
+        count += 1
+    if count >= k:
+        return True
+
+    return False
