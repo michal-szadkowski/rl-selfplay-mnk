@@ -18,6 +18,8 @@ class TrainingMetrics:
     actor_loss: float
     critic_loss: float
     entropy_loss: float
+    grad_norm: float
+    clip_fraction: float
 
 
 class ActorCriticModule(nn.Module):
@@ -33,7 +35,7 @@ class ActorCriticModule(nn.Module):
         self._architecture_name = "actor_critic"
         self._architecture_params = {
             "obs_shape": [int(x) for x in obs_shape],
-            "action_dim": int(action_dim)
+            "action_dim": int(action_dim),
         }
 
         # Convolutional body
@@ -118,7 +120,7 @@ class PPOAgent:
         ppo_epochs=4,
         batch_size=64,
         value_coef=0.5,
-        entropy_coef=0.01,
+        entropy_coef=0.05,
         device="cpu",
         num_envs=1,
     ):
@@ -216,7 +218,9 @@ class PPOAgent:
         self.buffer.compute_advantages_and_returns(last_values, self.gamma, self.gae_lambda)
 
         # 3. Update networks using the full rollout
-        actor_loss, critic_loss, entropy_loss = self.update_networks()
+        actor_loss, critic_loss, entropy_loss, grad_norm, clip_fraction = (
+            self.update_networks()
+        )
 
         # 4. Reset the buffer for the next rollout
         self.buffer.reset()
@@ -229,6 +233,8 @@ class PPOAgent:
                 actor_loss=actor_loss,
                 critic_loss=critic_loss,
                 entropy_loss=entropy_loss,
+                grad_norm=grad_norm,
+                clip_fraction=clip_fraction,
             )
         return TrainingMetrics(
             mean_reward=0.0,
@@ -236,6 +242,8 @@ class PPOAgent:
             actor_loss=actor_loss,
             critic_loss=critic_loss,
             entropy_loss=entropy_loss,
+            grad_norm=grad_norm,
+            clip_fraction=clip_fraction,
         )
 
     def update_networks(self):
@@ -246,6 +254,8 @@ class PPOAgent:
         actor_losses = []
         critic_losses = []
         entropy_losses = []
+        grad_norms = []
+        clip_fractions = []
 
         # Perform multiple PPO epochs on the same rollout data
         for epoch in range(self.ppo_epochs):
@@ -279,6 +289,10 @@ class PPOAgent:
                 )
                 actor_loss = -torch.min(surr1, surr2).mean()
 
+                # Calculate clip fraction (percentage of clips)
+                clip_fraction = (torch.abs(ratio - 1.0) > self.clip_range).float().mean()
+                clip_fractions.append(clip_fraction.item())
+
                 # Critic loss (value function loss)
                 critic_loss = F.mse_loss(values.squeeze(), returns)
 
@@ -294,11 +308,22 @@ class PPOAgent:
 
                 self.optimizer.zero_grad()
                 total_loss.backward()
-                torch.nn.utils.clip_grad_norm_(self.network.parameters(), max_norm=0.5)
+
+                grad_norm = torch.nn.utils.clip_grad_norm_(
+                    self.network.parameters(), max_norm=0.5
+                )
+                grad_norms.append(grad_norm.item())
+
                 self.optimizer.step()
 
                 actor_losses.append(actor_loss.item())
                 critic_losses.append(critic_loss.item())
                 entropy_losses.append(entropy_loss.item())
 
-        return np.mean(actor_losses), np.mean(critic_losses), np.mean(entropy_losses)
+        return (
+            np.mean(actor_losses),
+            np.mean(critic_losses),
+            np.mean(entropy_losses),
+            np.mean(grad_norms),
+            np.mean(clip_fractions),
+        )

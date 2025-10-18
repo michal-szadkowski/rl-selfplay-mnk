@@ -32,8 +32,8 @@ class RolloutBuffer:
         self.observations[self.ptr].copy_(torch.as_tensor(obs, dtype=torch.float32, device=self.device))
         self.actions[self.ptr].copy_(torch.as_tensor(action, dtype=torch.long, device=self.device))
         self.rewards[self.ptr].copy_(torch.as_tensor(reward, dtype=torch.float32, device=self.device))
-        self.values[self.ptr].copy_(torch.as_tensor(value, dtype=torch.float32, device=self.device).view(-1))
-        self.log_probs[self.ptr].copy_(torch.as_tensor(log_prob, dtype=torch.float32, device=self.device))
+        self.values[self.ptr].copy_(torch.as_tensor(value, dtype=torch.float32, device=self.device).view(-1).detach())
+        self.log_probs[self.ptr].copy_(torch.as_tensor(log_prob, dtype=torch.float32, device=self.device).detach())
         self.dones[self.ptr].copy_(torch.as_tensor(done, dtype=torch.bool, device=self.device))
         self.action_masks[self.ptr].copy_(torch.as_tensor(action_mask, dtype=torch.bool, device=self.device))
         self.ptr += 1
@@ -47,7 +47,7 @@ class RolloutBuffer:
         - last_values = V(s_T) for last states (after rollout).
         """
         last_values = torch.as_tensor(last_values, dtype=self.values.dtype,
-                                      device=self.device).reshape(self.num_envs)
+                                      device=self.device).reshape(self.num_envs).detach()
 
         steps = self.ptr if self.ptr > 0 else self.n_steps
         advantages = torch.zeros((steps, self.num_envs),
@@ -85,7 +85,7 @@ class RolloutBuffer:
         if normalize_advantages:
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
-        values = self.values[:steps].view(num_samples)  # Old value estimates from rollout collection
+        values = self.values[:steps].view(num_samples)
         
         dataset = TensorDataset(
             observations,

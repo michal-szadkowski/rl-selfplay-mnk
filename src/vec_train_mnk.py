@@ -1,4 +1,3 @@
-import os
 from copy import deepcopy
 
 import torch
@@ -7,9 +6,9 @@ from gymnasium.wrappers.vector import RecordEpisodeStatistics
 
 from alg.ppo import PPOAgent, ActorCriticModule, TrainingMetrics
 from env.mnk_game_env import create_mnk_env
+from selfplay.opponent_pool import OpponentPool
 from selfplay.policy import NNPolicy, VectorNNPolicy
 from selfplay.vector_self_play_wrapper import VectorSelfPlayWrapper
-from selfplay.opponent_pool import OpponentPool
 from validation import run_validation
 from model_export import ModelExporter
 
@@ -17,16 +16,15 @@ from model_export import ModelExporter
 def train_mnk():
     default_config = {
         "mnk": (9, 9, 5),
-        "learning_rate": 1e-4,
+        "learning_rate": 2e-4,
         "gamma": 0.97,
-        "batch_size": 256,
-        "n_steps": 256,
+        "batch_size": 1024,
+        "n_steps": 512,
         "ppo_epochs": 4,
-        "total_environment_steps": 256 * 16 * 12000,
+        "total_environment_steps": 50_000_000,
         "validation_interval": 50,
         "validation_episodes": 100,
         "benchmark_update_threshold": 0.65,
-        "opponent_pool_size": 1,
         "num_envs": 16,
     }
 
@@ -71,20 +69,29 @@ def train_mnk():
 
         benchmark_policy = NNPolicy(deepcopy(agent.network))
 
+        # Initialize opponent pool
+        opponent_pool = OpponentPool(max_size=5)
+        opponent_pool.add_opponent(VectorNNPolicy(deepcopy(agent.network)))
+
         steps_per_iteration = run.config.num_envs * run.config.n_steps
         total_iterations = run.config.total_environment_steps // steps_per_iteration
+        print(f"Starting training for {total_iterations}")
 
         for i in range(total_iterations):
             current_env_steps = (i + 1) * steps_per_iteration
 
             try:
-                opponent = VectorNNPolicy(deepcopy(agent.network))
+                # Select random opponent from pool
+                opponent = opponent_pool.get_random_opponent()
                 train_env.unwrapped.set_opponent(opponent)
 
                 # Train and get metrics
                 metrics = agent.learn(train_env)
 
                 log_training_metrics(run, metrics, i, current_env_steps)
+
+                if i % 5 == 0 or metrics.mean_reward > 0:
+                    opponent_pool.add_opponent(VectorNNPolicy(deepcopy(agent.network)))
 
                 # Validate agent performance periodically
                 if i > 0 and i % run.config.validation_interval == 0:
@@ -118,41 +125,21 @@ def train_mnk():
                         run.log({"validation/new_benchmark_step": i}, step=current_env_steps)
 
             except Exception as e:
-                error_msg = f"Error in iteration {i}: {str(e)}"
-                print(error_msg)
-                import traceback
-
-                traceback.print_exc()
-                run.log(
-                    {
-                        "error/iteration": i,
-                        "error/message": str(e),
-                        "error/traceback": traceback.format_exc(),
-                    },
-                    step=current_env_steps,
-                )
-                # Continue to next iteration or break if critical
+                handle_training_error(run, e, i, current_env_steps)
                 continue
-
-
-def should_add_to_pool(metrics, iteration):
-    """Simple but effective opponent addition."""
-    # Add good performing agents
-    if metrics.mean_reward > 0.1:
-        return True
-
-    # Add periodically for diversity (but less frequently)
-    if iteration % 15 == 0:
-        return True
-
-    return False
 
 
 def log_training_metrics(run, metrics: TrainingMetrics, iteration, env_steps):
     """Log training metrics."""
     print(
-        f"Iteration {iteration} ({env_steps:,} env steps): Mean reward = {metrics.mean_reward:.3f}, Mean length = {metrics.mean_length:.1f}"
+        f"Iter {iteration} | {env_steps:,} steps | "
+        f"reward: {metrics.mean_reward:.3f} | "
+        f"length: {metrics.mean_length:.1f} | "
+        f"entropy: {metrics.entropy_loss:.4f} | "
+        f"grad_norm: {metrics.grad_norm:.3f} | "
+        f"clip: {metrics.clip_fraction:.3f}"
     )
+
     run.log(
         {
             "training/mean_reward": metrics.mean_reward,
@@ -160,20 +147,25 @@ def log_training_metrics(run, metrics: TrainingMetrics, iteration, env_steps):
             "training/actor_loss": metrics.actor_loss,
             "training/critic_loss": metrics.critic_loss,
             "training/entropy_loss": metrics.entropy_loss,
+            "training/grad_norm": metrics.grad_norm,
+            "training/clip_fraction": metrics.clip_fraction,
         },
         step=env_steps,
     )
 
 
-def log_pool_stats(run, opponent_pool, env_steps):
-    """Log pool statistics."""
-    pool_stats = opponent_pool.get_pool_stats()
+def handle_training_error(run, error, iteration, env_steps):
+    """Handle training exceptions and log to W&B."""
+    error_msg = f"Error in iteration {iteration}: {str(error)}"
+    print(error_msg)
+    import traceback
+
+    traceback.print_exc()
     run.log(
         {
-            "pool/size": pool_stats["size"],
-            "pool/avg_mean_reward": pool_stats["avg_mean_reward"],
-            "pool/avg_games_played": pool_stats["avg_games_played"],
-            "pool/total_games": pool_stats["total_games"],
+            "error/iteration": iteration,
+            "error/message": str(error),
+            "error/traceback": traceback.format_exc(),
         },
         step=env_steps,
     )
