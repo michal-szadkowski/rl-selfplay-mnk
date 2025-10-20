@@ -76,8 +76,6 @@ def train_mnk():
 
         for i in range(total_iterations):
             current_env_steps = (i + 1) * steps_per_iteration
-            if current_env_steps > 20_000_000:
-                agent.entropy_coef = 0.01
             try:
                 # Select random opponent from pool
                 opponent = opponent_pool.get_random_opponent()

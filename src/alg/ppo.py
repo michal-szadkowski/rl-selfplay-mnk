@@ -123,7 +123,7 @@ class PPOAgent:
         ppo_epochs=4,
         batch_size=64,
         value_coef=0.5,
-        entropy_coef=0.05,
+        entropy_coef=0.01,
         device="cpu",
         num_envs=1,
     ):
