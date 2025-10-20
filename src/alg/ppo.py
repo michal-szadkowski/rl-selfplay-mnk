@@ -60,7 +60,10 @@ class ActorCriticModule(nn.Module):
         )
 
         self.critic = nn.Sequential(
-            nn.Linear(flattened_size, 1024), nn.Tanh(), nn.Linear(1024, 1), nn.Tanh()
+            nn.Linear(flattened_size, 1024),
+            nn.Tanh(),
+            nn.Linear(1024, 1),
+            nn.Tanh(),
         )
 
         self._initialize_weights()

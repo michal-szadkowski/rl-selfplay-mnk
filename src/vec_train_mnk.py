@@ -4,7 +4,8 @@ import torch
 import wandb
 from gymnasium.wrappers.vector import RecordEpisodeStatistics
 
-from alg.ppo import PPOAgent, ActorCriticModule, TrainingMetrics
+from alg.ppo import PPOAgent, TrainingMetrics
+from alg.resnet import SimpleResNetActorCritic
 from env.mnk_game_env import create_mnk_env
 from selfplay.opponent_pool import OpponentPool
 from selfplay.policy import NNPolicy, VectorNNPolicy
@@ -16,26 +17,22 @@ from model_export import ModelExporter
 def train_mnk():
     default_config = {
         "mnk": (9, 9, 5),
-        "learning_rate": 2e-4,
-        "gamma": 0.97,
+        "learning_rate": 1e-4,
+        "gamma": 0.98,
         "batch_size": 1024,
         "n_steps": 512,
         "ppo_epochs": 4,
         "total_environment_steps": 50_000_000,
-        "validation_interval": 50,
+        "validation_interval": 25,
         "validation_episodes": 100,
-        "benchmark_update_threshold": 0.65,
+        "benchmark_update_threshold": 0.60,
         "num_envs": 16,
     }
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Using device: {device}")
 
-    with wandb.init(
-        config=default_config,
-        project="mnk_vector_a2c",
-        group="vec",
-    ) as run:
+    with wandb.init(config=default_config, project="mnk_995") as run:
         # Initialize model exporter
         model_exporter = ModelExporter(run.name or None)
 
@@ -52,7 +49,7 @@ def train_mnk():
         action_dim = train_env.single_action_space.n
 
         # Initialize A2C agent with neural network
-        network = ActorCriticModule(obs_shape, action_dim)
+        network = SimpleResNetActorCritic(obs_shape, action_dim)
         agent = PPOAgent(
             obs_shape,
             action_dim,
@@ -79,7 +76,8 @@ def train_mnk():
 
         for i in range(total_iterations):
             current_env_steps = (i + 1) * steps_per_iteration
-
+            if current_env_steps > 20_000_000:
+                agent.entropy_coef = 0.01
             try:
                 # Select random opponent from pool
                 opponent = opponent_pool.get_random_opponent()
@@ -90,7 +88,7 @@ def train_mnk():
 
                 log_training_metrics(run, metrics, i, current_env_steps)
 
-                if i % 5 == 0 or metrics.mean_reward > 0:
+                if i % 10 == 0 or metrics.mean_reward > 0.3:
                     opponent_pool.add_opponent(VectorNNPolicy(deepcopy(agent.network)))
 
                 # Validate agent performance periodically

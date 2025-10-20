@@ -1,10 +1,10 @@
 import argparse
 import torch
 
-from .env.mnk_game_env import create_mnk_env
-from .env.mnk_game import Color
-from .alg.ppo import ActorCriticModule
-from .selfplay.policy import Policy, NNPolicy, RandomPolicy
+from env.mnk_game_env import create_mnk_env
+from env.mnk_game import Color
+from selfplay.policy import Policy, NNPolicy, RandomPolicy
+from model_export import load_any_model
 
 
 class HumanPolicy(Policy):
@@ -117,12 +117,24 @@ def main():
         # Otherwise, load the policy from a model file
         try:
             print(f"Loading model from: {policy_arg}")
-            network = ActorCriticModule(obs_shape, action_dim)
-            network.load_state_dict(torch.load(policy_arg, map_location=device))
+            import os
+
+            if os.path.isdir(policy_arg):
+                # Directory - find latest model
+                import glob
+                json_files = sorted(glob.glob(os.path.join(policy_arg, "*.json")))
+                if not json_files:
+                    print(f"Error: No model metadata found in directory '{policy_arg}'")
+                    exit(1)
+                model_id = os.path.basename(json_files[-1])[:-5]  # Remove .json
+                model_dir = policy_arg
+            else:
+                # File path
+                model_dir, filename = os.path.split(policy_arg)
+                model_id = filename.replace('.pt', '')
+
+            network = load_any_model(model_dir, model_id, device=device)
             return NNPolicy(network, device=device)
-        except FileNotFoundError:
-            print(f"Error: Model file not found at '{policy_arg}'")
-            exit(1)
         except Exception as e:
             print(f"Error loading model: {e}")
             exit(1)
