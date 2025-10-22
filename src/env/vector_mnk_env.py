@@ -2,6 +2,7 @@ import numpy as np
 from typing import Dict, List, Tuple, Any, Optional
 from gymnasium import spaces
 from gymnasium.vector.utils import batch_space
+from numba import njit, prange
 
 
 class VectorMnkEnv:
@@ -95,15 +96,8 @@ class VectorMnkEnv:
         self.agent_selection = np.where(self.agent_selection == "black", "white", "black")
 
     def _check_wins(self, moves: np.ndarray) -> np.ndarray:
-        """Check wins from specific move positions.
-
-        Args:
-            moves: Array of shape (N, 3) with [row, col, player_idx]
-
-        Returns:
-            Boolean array of wins for each environment
-        """
-        wins = np.zeros(len(moves), dtype=bool)
+        """Check wins from specific move positions."""
+        wins = np.zeros(len(moves), dtype=np.bool_)
 
         for i, (row, col, player_idx) in enumerate(moves):
             player_board = self.boards[i, player_idx]
@@ -141,9 +135,24 @@ class VectorMnkEnv:
         return wins
 
     def _check_line(self, line: np.ndarray) -> bool:
-        """Check if line contains k consecutive pieces."""
-        if len(line) < self.k:
-            return False
+        """Check if line contains k consecutive pieces using numba optimization."""
+        return _check_line_numba(line, self.k)
 
-        conv_result = np.convolve(line, np.ones(self.k, dtype=np.int8), mode='valid')
-        return np.any(conv_result == self.k)
+
+@njit
+def _check_line_numba(line: np.ndarray, k: int) -> bool:
+    """Numba-optimized line checking."""
+    if len(line) < k:
+        return False
+
+    count = 0
+    for i in range(len(line)):
+        if line[i] == 1:
+            count += 1
+            if count == k:
+                return True
+        else:
+            count = 0
+    return False
+
+
