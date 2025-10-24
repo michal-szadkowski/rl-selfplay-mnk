@@ -70,6 +70,13 @@ class VectorMnkEnv:
         # Get indices of environments with actual actions
         action_mask = actions != None
         action_indices = np.where(action_mask)[0]
+        none_indices = np.where(~action_mask)[0]
+
+        # Validate that None actions are only allowed in terminated environments
+        if len(none_indices) > 0:
+            active_none_envs = none_indices[~self.terminations[none_indices]]
+            if len(active_none_envs) > 0:
+                raise ValueError("None actions are only allowed in terminated environments")
 
         if len(action_indices) > 0:
             # Validate terminated environments
@@ -95,11 +102,21 @@ class VectorMnkEnv:
             wins = self._check_wins(np.column_stack([action_indices, rows, cols, player_idx]))
             self.rewards[action_indices] = 0
 
+            # Handle wins
             for i, env_idx in enumerate(action_indices[wins]):
                 winner = 0 if self.agent_selection[env_idx] == "black" else 1
                 self.rewards[env_idx, winner] = 1
                 self.rewards[env_idx, 1 - winner] = -1
                 self.terminations[env_idx] = True
+
+            # Check for draws in environments that didn't end in a win
+            non_winning_envs = action_indices[~wins]
+            if len(non_winning_envs) > 0:
+                draws = self._check_draws(non_winning_envs)
+                for i, env_idx in enumerate(non_winning_envs[draws]):
+                    # Draw: both players get 0 reward, game terminates
+                    self.rewards[env_idx] = 0  # Both players get 0
+                    self.terminations[env_idx] = True
 
         self.agent_selection = np.where(self.agent_selection == "black", "white", "black")
 
@@ -141,6 +158,11 @@ class VectorMnkEnv:
             wins[i] |= self._check_line(np.array(anti_diag_line))
 
         return wins
+
+    def _check_draws(self, env_indices: np.ndarray) -> np.ndarray:
+        """Check if the game is a draw (board is full) for specified environments."""
+        boards_subset = self.boards[env_indices]
+        return np.all((boards_subset[:, 0] == 1) | (boards_subset[:, 1] == 1), axis=(1, 2))
 
     def _check_line(self, line: np.ndarray) -> bool:
         """Check if line contains k consecutive pieces using numba optimization."""
