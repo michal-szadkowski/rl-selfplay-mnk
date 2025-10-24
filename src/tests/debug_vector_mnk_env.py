@@ -30,20 +30,20 @@ def test_basic_functionality():
     env.reset(np.arange(3))
     print_state(env, "Po resecie")
 
-    # Krok 1: Ruch tylko w środowisku 0 i 2
-    actions = np.array([0, None, 4], dtype=object)  # Env 0: (0,0), Env 2: (1,1)
+    # Krok 1: Ruchy we wszystkich środowiskach (każde robi inny ruch)
+    actions = np.array([0, 1, 4], dtype=object)  # Env 0: (0,0), Env 1: (0,1), Env 2: (1,1)
     env.step(actions)
-    print_state(env, "Po kroku 1 (akcje w env 0, 2)")
+    print_state(env, "Po kroku 1 (akcje we wszystkich env)")
 
-    # Krok 2: Ruch tylko w środowisku 1
-    actions = np.array([None, 1, None], dtype=object)  # Env 1: (0,1)
+    # Krok 2: Ruchy we wszystkich środowiskach
+    actions = np.array([3, 2, 5], dtype=object)  # Env 0: (1,0), Env 1: (0,2), Env 2: (1,2)
     env.step(actions)
-    print_state(env, "Po kroku 2 (akcja w env 1)")
+    print_state(env, "Po kroku 2 (akcje we wszystkich env)")
 
-    # Krok 3: Kontynuacja gry w środowisku 0 i 2
-    actions = np.array([3, None, 8], dtype=object)  # Env 0: (1,0), Env 2: (2,2)
+    # Krok 3: Kontynuacja gry we wszystkich środowiskach
+    actions = np.array([6, 7, 8], dtype=object)  # Env 0: (2,0), Env 1: (2,1), Env 2: (2,2)
     env.step(actions)
-    print_state(env, "Po kroku 3 (akcje w env 0, 2)")
+    print_state(env, "Po kroku 3 (akcje we wszystkich env)")
 
 
 def test_win_detection_bug():
@@ -59,29 +59,29 @@ def test_win_detection_bug():
     # Symuluj wygraną w środowisku 2 (indeks 2), ale nie w 0 i 1
     # Czarne wygrywają w środowisku 2: (0,0), (0,1), (0,2)
 
-    # Krok 1: Czarne w env 2 na (0,0)
-    actions = np.array([None, None, 0], dtype=object)
+    # Krok 1: Czarne w env 2 na (0,0), inne środowiska robią losowe ruchy
+    actions = np.array([4, 5, 0], dtype=object)  # Env 0: (1,1), Env 1: (1,2), Env 2: (0,0)
     env.step(actions)
     print_state(env, "Env 2: Czarne (0,0)")
 
-    # Krok 2: Białe w env 2 na (1,0)
-    actions = np.array([None, None, 3], dtype=object)
+    # Krok 2: Białe w env 2 na (1,0), inne środowiska robią losowe ruchy
+    actions = np.array([6, 7, 3], dtype=object)  # Env 0: (2,0), Env 1: (2,1), Env 2: (1,0)
     env.step(actions)
     print_state(env, "Env 2: Białe (1,0)")
 
-    # Krok 3: Czarne w env 2 na (0,1)
-    actions = np.array([None, None, 1], dtype=object)
+    # Krok 3: Czarne w env 2 na (0,1), inne środowiska robią losowe ruchy
+    actions = np.array([8, 2, 1], dtype=object)  # Env 0: (2,2), Env 1: (0,2), Env 2: (0,1)
     env.step(actions)
     print_state(env, "Env 2: Czarne (0,1)")
 
-    # Krok 4: Białe w env 2 na (1,1)
-    actions = np.array([None, None, 4], dtype=object)
+    # Krok 4: Białe w env 2 na (1,1), inne środowiska robią losowe ruchy
+    actions = np.array([0, 3, 4], dtype=object)  # Env 0: (0,0), Env 1: (1,0), Env 2: (1,1)
     env.step(actions)
     print_state(env, "Env 2: Białe (1,1)")
 
     # Krok 5: Czarne w env 2 na (0,2) - POWINNA BYĆ WYGRANA!
     print("\n*** OCZEKIWANA WYGRANA W ŚRODOWISKU 2 ***")
-    actions = np.array([None, None, 2], dtype=object)
+    actions = np.array([1, 4, 2], dtype=object)  # Env 0: (0,1), Env 1: (1,1), Env 2: (0,2)
     env.step(actions)
     print_state(env, "Env 2: Czarne (0,2) - POWINNA BYĆ WYGRANA!")
 
@@ -108,7 +108,11 @@ def test_reward_management():
     print("Przed krokiem:")
     print(f"Rewards:\n{env.rewards}")
 
-    # Wykonaj krok tylko w środowisku 1
+    # Ustaw env 0 i 2 jako zakończone, aby można użyć None
+    env.terminations[0] = True
+    env.terminations[2] = True
+    
+    # Wykonaj krok tylko w środowisku 1 (env 0 i 2 mają None)
     actions = np.array([None, 4, None], dtype=object)
     env.step(actions)
 
@@ -116,11 +120,11 @@ def test_reward_management():
     print(f"Rewards:\n{env.rewards}")
 
     # Sprawdź czy nagrody w env 0 i 2 zostały zachowane
-    if np.allclose(env.rewards[0], [0.0, 0.0]) and np.allclose(env.rewards[2], [0.0, 0.0]):
-        print("✗ BŁĄD: Nagrody w env 0 i 2 zostały zresetowane!")
-        print("Powinny być zachowane, bo nie było w nich akcji")
-    else:
+    if np.allclose(env.rewards[0], [0.5, -0.5]) and np.allclose(env.rewards[2], [0.0, 0.0]):
         print("✓ Nagrody w nieaktywnych środowiskach zachowane")
+    else:
+        print("✗ BŁĄD: Nagrody w env 0 i 2 zostały zmienione!")
+        print("Powinny być zachowane, bo nie było w nich akcji")
 
 
 def test_mixed_termination():
