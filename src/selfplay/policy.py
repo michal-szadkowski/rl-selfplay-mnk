@@ -83,3 +83,40 @@ class VectorNNPolicy(Policy):
 
         action = dist.sample()
         return action.cpu().numpy()
+
+
+class BatchNNPolicy(Policy):
+    """Policy that accepts a single dictionary with batched observations instead of a list of dictionaries."""
+    
+    def __init__(self, model, device="cpu"):
+        self.model = model
+        self.model.eval()
+        self.model.to(device)
+        self.device = device
+
+    def act(self, obs):
+        """
+        Act on a single dictionary with batched observations.
+        
+        Args:
+            obs: Dictionary with batched observations and action masks
+                 {
+                     "observation": np.ndarray of shape (batch_size, channels, height, width),
+                     "action_mask": np.ndarray of shape (batch_size, action_dim)
+                 }
+        
+        Returns:
+            np.ndarray: Actions for each environment in the batch
+        """
+        if isinstance(obs, dict):
+            # Convert to tensors directly (already batched)
+            observation_batch = torch.as_tensor(obs["observation"], device=self.device, dtype=torch.float32)
+            mask_batch = torch.as_tensor(obs["action_mask"], device=self.device, dtype=torch.bool)
+        else:
+            raise ValueError("BatchNNPolicy expects a dictionary with batched observations")
+        
+        with torch.no_grad():
+            dist, _ = self.model(observation_batch, mask_batch)
+        
+        action = dist.sample()
+        return action.cpu().numpy()

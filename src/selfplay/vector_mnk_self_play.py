@@ -1,0 +1,182 @@
+import numpy as np
+from typing import Dict, Any, List, Optional, Tuple
+import gymnasium as gym
+from gymnasium.vector.utils import batch_space
+
+from src.env.vector_mnk_env import VectorMnkEnv
+from src.selfplay.policy import VectorNNPolicy, BatchNNPolicy, Policy
+
+
+class VectorMnkSelfPlayWrapper(gym.vector.VectorEnv):
+    """Vector self-play wrapper optimized for VectorMnkEnv."""
+
+    def __init__(self, m: int, n: int, k: int, n_envs: int = 1):
+        """
+        Initialize vector self-play wrapper for MNK game.
+
+        Args:
+            m, n, k: Board dimensions and win condition
+            n_envs: Number of parallel environments
+        """
+        # Set required VectorEnv attributes
+        self.metadata = {"autoreset_mode": "next_step"}
+
+        self.m = m
+        self.n = n
+        self.k = k
+        self.num_envs = n_envs
+
+        # Create vector environments
+        self.envs = VectorMnkEnv(m=m, n=n, k=k, parallel=n_envs)
+
+        # Setup spaces
+        self.single_observation_space = self.envs.single_observation_space
+        self.observation_space = self.envs.observation_space
+        self.single_action_space = self.envs.single_action_space
+        self.action_space = self.envs.action_space
+
+        # Initialize state
+        self.opponent_policy: Optional[Policy] = None
+        self.players = np.random.choice(
+            ["black", "white"], n_envs
+        )  # Who external agent plays in each env
+
+        # Autoreset tracking
+        self._autoreset_envs = np.zeros(n_envs, dtype=bool)
+
+    def set_opponent(self, opponent_policy: Policy) -> None:
+        """Set opponent policy for self-play."""
+        self.opponent_policy = opponent_policy
+
+    def reset(
+        self, seed: Optional[int] = None, options: Optional[Dict[str, Any]] = None
+    ) -> Tuple[Dict[str, np.ndarray], Dict[str, Any]]:
+        """
+        Reset all environments and start new games.
+
+        Returns:
+            observations: Batch of initial observations
+            infos: Additional information
+        """
+        # Reset all environments
+        env_indices = np.arange(self.num_envs, dtype=np.int_)
+        self.envs.reset(env_indices)
+
+        # Randomize who external agent plays as in each environment
+        self.players = np.random.choice(["black", "white"], self.num_envs)
+
+        # Let opponent make first move where external agent is white (black starts first)
+        self._opponent_step()
+
+        # Reset tracking
+        self._autoreset_envs = np.zeros(self.num_envs, dtype=bool)
+
+        # Return current observations from VectorMnkEnv
+        obs, rewards, terminations, truncations, env_infos = self.envs.last()
+
+        # Process infos like the original wrapper
+        infos = {}
+        for i in range(self.num_envs):
+            info = env_infos[i] if env_infos[i] else {}
+            infos = self._add_info(infos, info, i)
+
+        return obs, infos
+
+    def step(
+        self, actions: np.ndarray
+    ) -> Tuple[Dict[str, np.ndarray], np.ndarray, np.ndarray, np.ndarray, Dict[str, Any]]:
+        """
+        Execute agent actions, then opponent responses.
+
+        Args:
+            actions: Agent actions (for environments where external agent's turn)
+
+        Returns:
+            observations: Batch of new observations
+            rewards: Batch of rewards (from agent's perspective)
+            terminations: Batch of termination flags
+            truncations: Batch of truncation flags
+            infos: Additional information
+        """
+        # Handle autoreset environments first
+        self._handle_autoreset()
+
+        # Execute agent actions only in environments where it's agent's turn
+        step_actions = np.empty(self.num_envs, dtype=object)
+        step_actions[:] = None
+
+        # External agent plays in environments where their turn matches their assigned player
+        agent_turn_mask = (self.envs.agent_selection == self.players) & ~self._autoreset_envs
+        if np.any(agent_turn_mask):
+            step_actions[agent_turn_mask] = actions[agent_turn_mask]
+
+        assert np.all(actions[~agent_turn_mask] == None)
+
+        # Execute agent step
+        self.envs.step(step_actions)
+
+        # Let opponent respond where it's their turn
+        self._opponent_step()
+
+        # Get current state directly from VectorMnkEnv
+        obs, rewards, terminations, truncations, env_infos = self.envs.last()
+
+        # Process infos like the original wrapper
+        infos = {}
+        for i in range(self.num_envs):
+            info = env_infos[i] if env_infos[i] else {}
+            infos = self._add_info(infos, info, i)
+
+        # Check for autoreset
+        self._autoreset_envs = terminations | truncations
+
+        return obs, rewards, terminations, truncations, infos
+
+    def _opponent_step(self) -> None:
+        """Execute opponent move in all environments where opponent should play."""
+        if self.opponent_policy is None:
+            return
+
+        # Determine which environments opponent should play in
+        opponent_envs_mask = (
+            self.envs.agent_selection != self.players
+        ) & ~self._autoreset_envs
+
+        if not np.any(opponent_envs_mask):
+            return
+
+        # Get observations and prepare batch for opponent
+        obs = self.envs.observe()
+        opponent_observations = {
+            "observation": obs["observation"][opponent_envs_mask],
+            "action_mask": obs["action_mask"][opponent_envs_mask],
+        }
+
+        # Get and apply opponent actions
+        opponent_actions = self.opponent_policy.act(opponent_observations)
+
+        step_actions = np.empty(self.num_envs, dtype=object)
+        step_actions[:] = None
+        step_actions[opponent_envs_mask] = opponent_actions
+        self.envs.step(step_actions)
+
+    def _handle_autoreset(self) -> None:
+        """Handle autoreset for terminated environments."""
+        if not np.any(self._autoreset_envs):
+            return
+
+        # Reset terminated environments
+        env_indices_to_reset = np.where(self._autoreset_envs)[0]
+        self.envs.reset(env_indices_to_reset)
+
+        # Reset autoreset flag
+        self._autoreset_envs[env_indices_to_reset] = False
+
+        # Randomize who external agent plays as in reset environments
+        self.players[env_indices_to_reset] = np.random.choice(
+            ["black", "white"], len(env_indices_to_reset)
+        )
+
+        # Let opponent make first move where external agent is white
+        if self.opponent_policy is not None:
+            self._opponent_step()

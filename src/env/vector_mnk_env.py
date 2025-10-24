@@ -14,10 +14,12 @@ class VectorMnkEnv:
         self.num_envs = parallel
         self.possible_agents = ["black", "white"]
 
-        self.single_observation_space = spaces.Dict({
-            "observation": spaces.Box(0, 1, (2, m, n), dtype=np.int8),
-            "action_mask": spaces.Box(0, 1, (m * n,), dtype=np.int8),
-        })
+        self.single_observation_space = spaces.Dict(
+            {
+                "observation": spaces.Box(0, 1, (2, m, n), dtype=np.int8),
+                "action_mask": spaces.Box(0, 1, (m * n,), dtype=np.int8),
+            }
+        )
         self.observation_space = batch_space(self.single_observation_space, self.num_envs)
         self.single_action_space = spaces.Discrete(m * n)
         self.action_space = batch_space(self.single_action_space, self.num_envs)
@@ -28,13 +30,18 @@ class VectorMnkEnv:
         self.terminations = np.zeros(self.parallel, dtype=bool)
         self.infos: List[Optional[Dict[str, Any]]] = [None] * self.parallel
 
-    def last(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, List[Dict[str, Any]]]:
+    def last(
+        self,
+    ) -> Tuple[
+        Dict[str, np.ndarray], np.ndarray, np.ndarray, np.ndarray, List[Dict[str, Any]]
+    ]:
         agent_idx = (self.agent_selection == "white").astype(int)
         rewards = self.rewards[np.arange(self.parallel), agent_idx]
         truncations = np.zeros(self.parallel, dtype=bool)
         infos = [info or {} for info in self.infos]
 
-        return rewards, self.terminations, truncations, infos
+        observations = self.observe()
+        return observations, rewards, self.terminations, truncations, infos
 
     def observe(self) -> Dict[str, np.ndarray]:
         black_turn = self.agent_selection == "black"
@@ -45,10 +52,10 @@ class VectorMnkEnv:
         if np.any(white_turn):
             observations[white_turn] = self.boards[white_turn][:, [1, 0]]
 
-        action_masks = ((self.boards[:, 0] == 0) & (self.boards[:, 1] == 0))
+        action_masks = (self.boards[:, 0] == 0) & (self.boards[:, 1] == 0)
         return {
             "observation": observations,
-            "action_mask": action_masks.reshape(self.parallel, -1).astype(np.int8)
+            "action_mask": action_masks.reshape(self.parallel, -1).astype(np.int8),
         }
 
     def reset(self, envs: np.ndarray[np.int_]) -> None:
@@ -76,16 +83,17 @@ class VectorMnkEnv:
             if np.any(active_actions < 0) or np.any(active_actions >= self.m * self.n):
                 raise ValueError(f"Actions must be in range [0, {self.m * self.n - 1}]")
 
-            player_idx = (self.agent_selection[action_mask] == "white").astype(int)
-            cell_occupied = (self.boards[action_indices, 0, rows, cols] == 1) | \
-                           (self.boards[action_indices, 1, rows, cols] == 1)
+            player_idx = (self.agent_selection[action_mask] != "black").astype(int)
+            cell_occupied = (self.boards[action_indices, 0, rows, cols] == 1) | (
+                self.boards[action_indices, 1, rows, cols] == 1
+            )
             if np.any(cell_occupied):
                 raise ValueError("Cannot place piece on occupied cell")
 
             self.boards[action_indices, player_idx, rows, cols] = 1
 
-            wins = self._check_wins(np.column_stack([rows, cols, player_idx]))
-            self.rewards.fill(0)
+            wins = self._check_wins(np.column_stack([action_indices, rows, cols, player_idx]))
+            self.rewards[action_indices] = 0
 
             for i, env_idx in enumerate(action_indices[wins]):
                 winner = 0 if self.agent_selection[env_idx] == "black" else 1
@@ -99,8 +107,8 @@ class VectorMnkEnv:
         """Check wins from specific move positions."""
         wins = np.zeros(len(moves), dtype=np.bool_)
 
-        for i, (row, col, player_idx) in enumerate(moves):
-            player_board = self.boards[i, player_idx]
+        for i, (action_indices, row, col, player_idx) in enumerate(moves):
+            player_board = self.boards[action_indices, player_idx]
 
             # Horizontal
             h_start = max(0, col - self.k + 1)
@@ -154,5 +162,3 @@ def _check_line_numba(line: np.ndarray, k: int) -> bool:
         else:
             count = 0
     return False
-
-
