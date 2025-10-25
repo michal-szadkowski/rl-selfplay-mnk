@@ -76,9 +76,9 @@ class VectorMnkSelfPlayWrapper(gym.vector.VectorEnv):
 
         # Process infos like the original wrapper
         infos = {}
-        for i in range(self.num_envs):
-            info = env_infos[i] if env_infos[i] else {}
-            infos = self._add_info(infos, info, i)
+        valid_infos = [info for info in env_infos if info]
+        for info in valid_infos:
+            infos.update(info)
 
         return obs, infos
 
@@ -108,8 +108,7 @@ class VectorMnkSelfPlayWrapper(gym.vector.VectorEnv):
 
         self._handle_autoreset()
 
-        step_actions = np.empty(self.num_envs, dtype=object)
-        step_actions[:] = None
+        step_actions = np.full(self.num_envs, None, dtype=object)
         step_actions[agent_turn_mask] = actions[agent_turn_mask]
 
         self.envs.step(step_actions)
@@ -123,9 +122,9 @@ class VectorMnkSelfPlayWrapper(gym.vector.VectorEnv):
         ), "Agent turn mismatch after opponent step"
 
         infos = {}
-        for i in range(self.num_envs):
-            info = env_infos[i] if env_infos[i] else {}
-            infos = self._add_info(infos, info, i)
+        valid_infos = [info for info in env_infos if info]
+        for info in valid_infos:
+            infos.update(info)
 
         self._autoreset_envs = terminations | truncations
 
@@ -137,10 +136,6 @@ class VectorMnkSelfPlayWrapper(gym.vector.VectorEnv):
 
         # Get current state to check terminations
         _, terminations, truncations, _, _ = self.envs.last()
-
-        # Convert to numpy arrays if needed
-        terminations = np.asarray(terminations, dtype=bool)
-        truncations = np.asarray(truncations, dtype=bool)
 
         # Determine which environments opponent should play in
         opponent_envs_mask = (
@@ -159,8 +154,7 @@ class VectorMnkSelfPlayWrapper(gym.vector.VectorEnv):
         # Get and apply opponent actions
         opponent_actions = self.opponent_policy.act(opponent_observations)
 
-        step_actions = np.empty(self.num_envs, dtype=object)
-        step_actions[:] = None
+        step_actions = np.full(self.num_envs, None, dtype=object)
         step_actions[opponent_envs_mask] = opponent_actions
         self.envs.step(step_actions)
 
