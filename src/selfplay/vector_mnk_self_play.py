@@ -126,7 +126,7 @@ class VectorMnkSelfPlayWrapper(gym.vector.VectorEnv):
         for info in valid_infos:
             infos.update(info)
 
-        self._autoreset_envs = terminations | truncations
+        self._autoreset_envs = terminations.astype(bool) | truncations.astype(bool)
 
         return obs, rewards, terminations, truncations, infos
 
@@ -141,7 +141,7 @@ class VectorMnkSelfPlayWrapper(gym.vector.VectorEnv):
         opponent_envs_mask = (
             (self.envs.agent_selection != self.players)
             & ~self._autoreset_envs
-            & ~(terminations | truncations)
+            & ~(terminations.astype(bool) | truncations.astype(bool))
         )
 
         # Get observations and prepare batch for opponent
