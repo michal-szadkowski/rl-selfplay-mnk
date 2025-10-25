@@ -72,12 +72,6 @@ class VectorMnkEnv:
         action_indices = np.where(action_mask)[0]
         none_indices = np.where(~action_mask)[0]
 
-        # Validate that None actions are only allowed in terminated environments
-        if len(none_indices) > 0:
-            active_none_envs = none_indices[~self.terminations[none_indices]]
-            if len(active_none_envs) > 0:
-                raise ValueError("None actions are only allowed in terminated environments")
-
         if len(action_indices) > 0:
             # Validate terminated environments
             if np.any(self.terminations[action_indices]):

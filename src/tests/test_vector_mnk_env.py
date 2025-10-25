@@ -174,14 +174,17 @@ class TestVectorMnkEnvStep:
         assert env.agent_selection[0] == "white"  # Turn switched anyway
         assert env.agent_selection[1] == "white"  # Both switch to white
 
-    def test_step_none_actions_active_error(self):
-        """Test that None actions in active environments raise error."""
+    def test_step_none_actions_active_valid(self):
+        """Test that None actions in active environments are valid."""
         env = VectorMnkEnv(m=3, n=3, k=3, parallel=2)
 
-        # None action in active environment should raise
+        # None action in active environment should be valid
         actions = np.array([None, 0])
-        with pytest.raises(ValueError, match="None actions are only allowed"):
-            env.step(actions)
+        env.step(actions)  # Should not raise error
+
+        # Check that only the second environment had a move
+        assert env.boards[0, 0, 0, 0] == 0  # No move in env 0
+        assert env.boards[1, 0, 0, 0] == 1  # Move in env 1
 
     def test_step_terminated_env_action_error(self):
         """Test that actions in terminated environments raise error."""
