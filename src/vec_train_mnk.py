@@ -4,14 +4,14 @@ import torch
 import wandb
 from gymnasium.wrappers.vector import RecordEpisodeStatistics
 
-from alg.ppo import PPOAgent, TrainingMetrics
-from alg.resnet import SimpleResNetActorCritic
-from env.mnk_game_env import create_mnk_env
-from selfplay.opponent_pool import OpponentPool
-from selfplay.policy import NNPolicy, VectorNNPolicy
-from selfplay.vector_self_play_wrapper import VectorSelfPlayWrapper
-from validation import run_validation
-from model_export import ModelExporter
+from src.alg.ppo import PPOAgent, TrainingMetrics
+from src.alg.resnet import SimpleResNetActorCritic
+from src.env.mnk_game_env import create_mnk_env
+from src.selfplay.opponent_pool import OpponentPool
+from src.selfplay.policy import NNPolicy, BatchNNPolicy
+from src.selfplay.vector_mnk_self_play import VectorMnkSelfPlayWrapper
+from src.validation import run_validation
+from src.model_export import ModelExporter
 
 
 def train_mnk():
@@ -42,7 +42,9 @@ def train_mnk():
             return create_mnk_env(m=mnk[0], n=mnk[1], k=mnk[2])
 
         # Initialize vectorized self-play environment
-        train_env = VectorSelfPlayWrapper(env_fn, n_envs=run.config.num_envs)
+        train_env = VectorMnkSelfPlayWrapper(
+            m=mnk[0], n=mnk[1], k=mnk[2], n_envs=run.config.num_envs
+        )
         train_env = RecordEpisodeStatistics(train_env)
 
         obs_shape = train_env.single_observation_space["observation"].shape
@@ -68,7 +70,7 @@ def train_mnk():
 
         # Initialize opponent pool
         opponent_pool = OpponentPool(max_size=5)
-        opponent_pool.add_opponent(VectorNNPolicy(deepcopy(agent.network)))
+        opponent_pool.add_opponent(BatchNNPolicy(deepcopy(agent.network)))
 
         steps_per_iteration = run.config.num_envs * run.config.n_steps
         total_iterations = run.config.total_environment_steps // steps_per_iteration
@@ -87,7 +89,7 @@ def train_mnk():
                 log_training_metrics(run, metrics, i, current_env_steps)
 
                 if i % 10 == 0 or metrics.mean_reward > 0.3:
-                    opponent_pool.add_opponent(VectorNNPolicy(deepcopy(agent.network)))
+                    opponent_pool.add_opponent(BatchNNPolicy(deepcopy(agent.network)))
 
                 # Validate agent performance periodically
                 if i > 0 and i % run.config.validation_interval == 0:

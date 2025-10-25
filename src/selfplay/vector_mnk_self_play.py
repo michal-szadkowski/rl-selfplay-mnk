@@ -2,6 +2,7 @@ import numpy as np
 from typing import Dict, Any, List, Optional, Tuple
 import gymnasium as gym
 from gymnasium.vector.utils import batch_space
+from gymnasium.vector import AutoresetMode
 
 from src.env.vector_mnk_env import VectorMnkEnv
 from src.selfplay.policy import VectorNNPolicy, BatchNNPolicy, Policy
@@ -19,7 +20,7 @@ class VectorMnkSelfPlayWrapper(gym.vector.VectorEnv):
             n_envs: Number of parallel environments
         """
         # Set required VectorEnv attributes
-        self.metadata = {"autoreset_mode": "next_step"}
+        self.metadata = {"autoreset_mode": AutoresetMode.NEXT_STEP}
 
         self.m = m
         self.n = n
@@ -59,17 +60,16 @@ class VectorMnkSelfPlayWrapper(gym.vector.VectorEnv):
             infos: Additional information
         """
         # Reset all environments
-        env_indices = np.arange(self.num_envs, dtype=np.int_)
+        env_indices = np.arange(self.num_envs)
         self.envs.reset(env_indices)
 
         # Randomize who external agent plays as in each environment
         self.players = np.random.choice(["black", "white"], self.num_envs)
 
+        self._autoreset_envs = np.zeros(self.num_envs, dtype=bool)
+
         # Let opponent make first move where external agent is white (black starts first)
         self._opponent_step()
-
-        # Reset tracking
-        self._autoreset_envs = np.zeros(self.num_envs, dtype=bool)
 
         # Return current observations from VectorMnkEnv
         obs, rewards, terminations, truncations, env_infos = self.envs.last()
