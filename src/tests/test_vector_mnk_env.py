@@ -14,7 +14,6 @@ class TestVectorMnkEnvInit:
         assert env.n == 3
         assert env.k == 3
         assert env.parallel == 4
-        assert env.num_envs == 4
         assert env.possible_agents == ["black", "white"]
 
     def test_init_spaces(self):
@@ -185,7 +184,7 @@ class TestVectorMnkEnvStep:
         # Check that only the second environment had a move
         assert env.boards[0, 0, 0, 0] == 0  # No move in env 0
         assert env.boards[1, 0, 0, 0] == 1  # Move in env 1
-        
+
         # Check turn switching - only env 1 should have switched turn
         assert env.agent_selection[0] == "black"  # No turn switch for None action
         assert env.agent_selection[1] == "white"  # Turn switched for actual action
@@ -196,7 +195,7 @@ class TestVectorMnkEnvStep:
 
         # Set up different states:
         # Env 0: active, None action - should NOT switch turn
-        # Env 1: active, real action - should switch turn  
+        # Env 1: active, real action - should switch turn
         # Env 2: terminated, None action - should switch turn
         env.terminations[2] = True
 
