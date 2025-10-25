@@ -98,52 +98,56 @@ class VectorMnkSelfPlayWrapper(gym.vector.VectorEnv):
             truncations: Batch of truncation flags
             infos: Additional information
         """
-        # Handle autoreset environments first
+        assert np.all(self.envs.agent_selection == self.players)
+
+        assert np.all(
+            actions[~self._autoreset_envs] != None
+        ), "External agent provided None action for their action but env was not terminated"
+
+        agent_turn_mask = ~self._autoreset_envs
+
         self._handle_autoreset()
 
-        # Execute agent actions only in environments where it's agent's turn
         step_actions = np.empty(self.num_envs, dtype=object)
         step_actions[:] = None
+        step_actions[agent_turn_mask] = actions[agent_turn_mask]
 
-        # External agent plays in environments where their turn matches their assigned player
-        agent_turn_mask = (self.envs.agent_selection == self.players) & ~self._autoreset_envs
-        if np.any(agent_turn_mask):
-            step_actions[agent_turn_mask] = actions[agent_turn_mask]
-
-        assert np.all(actions[~agent_turn_mask] == None)
-
-        # Execute agent step
         self.envs.step(step_actions)
 
-        # Let opponent respond where it's their turn
         self._opponent_step()
 
-        # Get current state directly from VectorMnkEnv
         obs, rewards, terminations, truncations, env_infos = self.envs.last()
 
-        # Process infos like the original wrapper
+        assert np.all(
+            self.envs.agent_selection == self.players
+        ), "Agent turn mismatch after opponent step"
+
         infos = {}
         for i in range(self.num_envs):
             info = env_infos[i] if env_infos[i] else {}
             infos = self._add_info(infos, info, i)
 
-        # Check for autoreset
         self._autoreset_envs = terminations | truncations
 
         return obs, rewards, terminations, truncations, infos
 
     def _opponent_step(self) -> None:
         """Execute opponent move in all environments where opponent should play."""
-        if self.opponent_policy is None:
-            return
+        assert self.opponent_policy is not None
+
+        # Get current state to check terminations
+        _, terminations, truncations, _, _ = self.envs.last()
+
+        # Convert to numpy arrays if needed
+        terminations = np.asarray(terminations, dtype=bool)
+        truncations = np.asarray(truncations, dtype=bool)
 
         # Determine which environments opponent should play in
         opponent_envs_mask = (
-            self.envs.agent_selection != self.players
-        ) & ~self._autoreset_envs
-
-        if not np.any(opponent_envs_mask):
-            return
+            (self.envs.agent_selection != self.players)
+            & ~self._autoreset_envs
+            & ~(terminations | truncations)
+        )
 
         # Get observations and prepare batch for opponent
         obs = self.envs.observe()
@@ -176,7 +180,3 @@ class VectorMnkSelfPlayWrapper(gym.vector.VectorEnv):
         self.players[env_indices_to_reset] = np.random.choice(
             ["black", "white"], len(env_indices_to_reset)
         )
-
-        # Let opponent make first move where external agent is white
-        if self.opponent_policy is not None:
-            self._opponent_step()
