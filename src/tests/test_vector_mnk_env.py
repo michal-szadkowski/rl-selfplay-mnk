@@ -171,8 +171,8 @@ class TestVectorMnkEnvStep:
         env.step(actions)
 
         # Should not raise error
-        assert env.agent_selection[0] == "white"  # Turn switched anyway
-        assert env.agent_selection[1] == "white"  # Both switch to white
+        assert env.agent_selection[0] == "white"  # Turn switched for terminated env
+        assert env.agent_selection[1] == "white"  # Turn switched for actual action
 
     def test_step_none_actions_active_valid(self):
         """Test that None actions in active environments are valid."""
@@ -185,6 +185,32 @@ class TestVectorMnkEnvStep:
         # Check that only the second environment had a move
         assert env.boards[0, 0, 0, 0] == 0  # No move in env 0
         assert env.boards[1, 0, 0, 0] == 1  # Move in env 1
+        
+        # Check turn switching - only env 1 should have switched turn
+        assert env.agent_selection[0] == "black"  # No turn switch for None action
+        assert env.agent_selection[1] == "white"  # Turn switched for actual action
+
+    def test_step_turn_switching_logic(self):
+        """Test specific turn switching logic for None actions in active vs terminated environments."""
+        env = VectorMnkEnv(m=3, n=3, k=3, parallel=3)
+
+        # Set up different states:
+        # Env 0: active, None action - should NOT switch turn
+        # Env 1: active, real action - should switch turn  
+        # Env 2: terminated, None action - should switch turn
+        env.terminations[2] = True
+
+        # Initial turns should all be black
+        assert np.all(env.agent_selection == "black")
+
+        # Apply actions
+        actions = np.array([None, 0, None])
+        env.step(actions)
+
+        # Check turn switching results
+        assert env.agent_selection[0] == "black"  # Active + None = no turn switch
+        assert env.agent_selection[1] == "white"  # Active + action = turn switch
+        assert env.agent_selection[2] == "white"  # Terminated + None = turn switch
 
     def test_step_terminated_env_action_error(self):
         """Test that actions in terminated environments raise error."""

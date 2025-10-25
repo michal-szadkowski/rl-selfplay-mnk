@@ -70,7 +70,6 @@ class VectorMnkEnv:
         # Get indices of environments with actual actions
         action_mask = actions != None
         action_indices = np.where(action_mask)[0]
-        none_indices = np.where(~action_mask)[0]
 
         if len(action_indices) > 0:
             # Validate terminated environments
@@ -112,7 +111,13 @@ class VectorMnkEnv:
                     self.rewards[env_idx] = 0  # Both players get 0
                     self.terminations[env_idx] = True
 
-        self.agent_selection = np.where(self.agent_selection == "black", "white", "black")
+        # Switch turns only for environments that had actual actions or are terminated
+        turn_switch_mask = action_mask | self.terminations
+        self.agent_selection = np.where(
+            turn_switch_mask,
+            np.where(self.agent_selection == "black", "white", "black"),
+            self.agent_selection
+        )
 
     def _check_wins(self, moves: np.ndarray) -> np.ndarray:
         """Check wins from specific move positions."""
