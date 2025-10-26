@@ -4,14 +4,14 @@ import torch
 import wandb
 from gymnasium.wrappers.vector import RecordEpisodeStatistics
 
-from src.alg.ppo import PPOAgent, TrainingMetrics
-from src.alg.resnet import SimpleResNetActorCritic
-from src.env.mnk_game_env import create_mnk_env
-from src.selfplay.opponent_pool import OpponentPool
-from src.selfplay.policy import NNPolicy, BatchNNPolicy
-from src.selfplay.vector_mnk_self_play import VectorMnkSelfPlayWrapper
-from src.validation import run_validation
-from src.model_export import ModelExporter
+from alg.ppo import PPOAgent, TrainingMetrics
+from alg.resnet import SimpleResNetActorCritic
+from env.mnk_game_env import create_mnk_env
+from selfplay.opponent_pool import OpponentPool
+from selfplay.policy import NNPolicy, BatchNNPolicy
+from selfplay.vector_mnk_self_play import VectorMnkSelfPlayWrapper
+from validation import run_validation
+from model_export import ModelExporter
 
 
 def train_mnk():
@@ -20,13 +20,13 @@ def train_mnk():
         "learning_rate": 1e-4,
         "gamma": 0.98,
         "batch_size": 1024,
-        "n_steps": 512,
+        "n_steps": 256,
         "ppo_epochs": 4,
         "total_environment_steps": 50_000_000,
         "validation_interval": 25,
         "validation_episodes": 100,
         "benchmark_update_threshold": 0.60,
-        "num_envs": 16,
+        "num_envs": 32,
     }
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -69,7 +69,7 @@ def train_mnk():
         benchmark_policy = NNPolicy(deepcopy(agent.network))
 
         # Initialize opponent pool
-        opponent_pool = OpponentPool(max_size=5)
+        opponent_pool = OpponentPool(max_size=4)
         opponent_pool.add_opponent(BatchNNPolicy(deepcopy(agent.network)))
 
         steps_per_iteration = run.config.num_envs * run.config.n_steps

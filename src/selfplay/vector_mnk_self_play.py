@@ -1,11 +1,10 @@
 import numpy as np
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple
 import gymnasium as gym
-from gymnasium.vector.utils import batch_space
 from gymnasium.vector import AutoresetMode
 
-from src.env.vector_mnk_env import VectorMnkEnv
-from src.selfplay.policy import VectorNNPolicy, BatchNNPolicy, Policy
+from env.vector_mnk_env import VectorMnkEnv
+from .policy import Policy
 
 
 class VectorMnkSelfPlayWrapper(gym.vector.VectorEnv):

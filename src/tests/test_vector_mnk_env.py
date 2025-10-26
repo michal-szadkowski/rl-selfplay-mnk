@@ -1,6 +1,6 @@
 import pytest
 import numpy as np
-from src.env.vector_mnk_env import VectorMnkEnv, _check_line_numba
+from env.vector_mnk_env import VectorMnkEnv, _check_line_numba
 
 
 class TestVectorMnkEnvInit:

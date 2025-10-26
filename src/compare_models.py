@@ -3,7 +3,9 @@ import sys
 import os
 from datetime import datetime
 
-from .model_comparison import ModelLoader, MatchRunner, GameConfig, ELOTracker
+from model_comparison.model_loader import ModelLoader
+from model_comparison.match_runner import MatchRunner, GameConfig
+from model_comparison.elo_tracker import ELOTracker
 
 
 def parse_arguments():
@@ -14,19 +16,19 @@ def parse_arguments():
         epilog="""
 Examples:
   # Compare specific model files
-  python -m src.compare_models model1.pt model2.pt model3.pt
+  uv run src/compare_models.py model1.pt model2.pt model3.pt
 
   # Compare all models from a folder
-  python -m src.compare_models models/run1
+  uv run src/compare_models.py models/run1
 
   # Compare models from multiple folders
-  python -m src.compare_models models/run1 models/run2
+  uv run src/compare_models.py models/run1 models/run2
 
   # Compare mix of files and folders
-  python -m src.compare_models model1.pt models/run1/ model_00500.pt
+  uv run src/compare_models.py model1.pt models/run1/ model_00500.pt
 
   # Custom settings
-  python -m src.compare_models models/run1 --games 100 --board 7 7 4 --device cuda
+  uv run src/compare_models.py models/run1 --games 100 --board 7 7 4 --device cuda
         """,
     )
 

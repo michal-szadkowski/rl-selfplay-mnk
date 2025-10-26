@@ -53,13 +53,13 @@ class SimpleResNetActorCritic(nn.Module):
         self.actor = nn.Sequential(
             nn.Linear(flat_size, 256),
             nn.ReLU(),
-            nn.Linear(256, action_dim)
+            nn.Linear(256, action_dim),
         )
 
         self.critic = nn.Sequential(
             nn.Linear(flat_size, 256),
             nn.ReLU(),
-            nn.Linear(256, 1)
+            nn.Linear(256, 1),
         )
 
         self._initialize_weights()
@@ -108,5 +108,3 @@ class SimpleResNetActorCritic(nn.Module):
         dist = Categorical(logits=logits)
         value = self.critic(features)
         return dist, value
-
-  

@@ -5,7 +5,8 @@
             "name": "Debug Current Python File",
             "type": "debugpy",
             "request": "launch",
-            "program": "${file}",
+            "program": "uv",
+            "args": ["run", "${file}"],
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "env": {
@@ -16,33 +17,8 @@
             "name": "Debug Current File as Module",
             "type": "debugpy",
             "request": "launch",
-            "module": "${fileDirname}/${fileBasenameNoExtension}",
-            "console": "integratedTerminal",
-            "cwd": "${workspaceFolder}",
-            "env": {
-                "PYTHONPATH": "${workspaceFolder}"
-            }
-        },
-        {
-            "name": "Debug Vector MNK Environment",
-            "type": "debugpy",
-            "request": "launch",
-            "module": "src.tests.debug_vector_mnk_env",
-            "console": "integratedTerminal",
-            "cwd": "${workspaceFolder}",
-            "env": {
-                "PYTHONPATH": "${workspaceFolder}"
-            }
-        },
-        {
-            "name": "Debug Vector MNK Tests",
-            "type": "debugpy",
-            "request": "launch",
-            "module": "pytest",
-            "args": [
-                "src/tests/test_vector_mnk_env.py",
-                "-v"
-            ],
+            "program": "uv",
+            "args": ["run", "-m", "${fileDirname}/${fileBasenameNoExtension}"],
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "env": {

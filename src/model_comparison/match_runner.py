@@ -4,9 +4,9 @@ from typing import List
 from dataclasses import dataclass
 from tqdm import tqdm
 
-from ..env.mnk_game_env import create_mnk_env
-from ..selfplay.policy import NNPolicy
-from ..validation import play_single_episode
+from env.mnk_game_env import create_mnk_env
+from selfplay.policy import NNPolicy
+from validation import play_single_episode
 from .model_loader import ModelInfo
 
 

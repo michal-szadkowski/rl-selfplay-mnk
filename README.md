@@ -32,7 +32,7 @@ This project implements a reinforcement learning framework for MNK games, includ
 uv sync
 
 # Start training
-python -m src.vec_train_mnk
+uv run src/vec_train_mnk.py
 
 # Hyperparameter sweeps
 wandb sweep sweep_config.yaml
@@ -42,13 +42,13 @@ wandb agent <SWEEP_ID>
 ### Playing
 ```bash
 # Human vs AI
-python -m src.play --p1 human --p2 model.pt --m 9 --n 9 --k 5
+uv run src/play.py --p1 human --p2 model.pt --m 9 --n 9 --k 5
 
 # AI vs AI
-python -m src.play --p1 model1.pt --p2 model2.pt --m 9 --n 9 --k 5
+uv run src/play.py --p1 model1.pt --p2 model2.pt --m 9 --n 9 --k 5
 
 # Custom board size
-python -m src.play --p1 model.pt --p2 random --m 7 --n 7 --k 4
+uv run src/play.py --p1 model.pt --p2 random --m 7 --n 7 --k 4
 ```
 
 ### Configuration

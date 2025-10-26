@@ -1,5 +1,5 @@
 import numpy as np
-from src.env.vector_mnk_env import VectorMnkEnv
+from env.vector_mnk_env import VectorMnkEnv
 
 
 def print_state(env, step_name):
@@ -9,7 +9,7 @@ def print_state(env, step_name):
     print(f"Terminations: {env.terminations}")
     print(f"Rewards:\n{env.rewards}")
     print("Boards:")
-    for i in range(env.num_envs):
+    for i in range(env.parallel):
         print(f"\nEnv {i}:")
         print(f"Black:\n {env.boards[i, 0]}")
         print(f"White:\n {env.boards[i, 1]}")
@@ -111,7 +111,7 @@ def test_reward_management():
     # Ustaw env 0 i 2 jako zakończone, aby można użyć None
     env.terminations[0] = True
     env.terminations[2] = True
-    
+
     # Wykonaj krok tylko w środowisku 1 (env 0 i 2 mają None)
     actions = np.array([None, 4, None], dtype=object)
     env.step(actions)

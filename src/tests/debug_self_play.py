@@ -1,6 +1,6 @@
 import numpy as np
-from src.selfplay.vector_mnk_self_play import VectorMnkSelfPlayWrapper
-from src.tests.test_utils import FirstLegalActionPolicy
+from selfplay.vector_mnk_self_play import VectorMnkSelfPlayWrapper
+from tests.test_utils import FirstLegalActionPolicy
 
 
 def debug_single_environment():

@@ -4,7 +4,7 @@ import json
 from typing import List, Dict, Any, Set, Tuple
 import torch
 
-from ..model_export import load_any_model
+from model_export import load_any_model
 
 
 class ModelInfo:

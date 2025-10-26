@@ -1,16 +1,13 @@
-"""Tests for VectorMnkSelfPlayWrapper edge cases and bugs."""
-
 import numpy as np
 import pytest
 
-# Add src to path for imports
 import sys
 import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from src.selfplay.vector_mnk_self_play import VectorMnkSelfPlayWrapper
-from src.tests.test_utils import FirstLegalActionPolicy
+from selfplay.vector_mnk_self_play import VectorMnkSelfPlayWrapper
+from tests.test_utils import FirstLegalActionPolicy
 
 
 class TestVectorMnkSelfPlayWrapper:
@@ -81,10 +78,15 @@ class TestVectorMnkSelfPlayWrapper:
                 reset_actions = np.zeros(self.n_envs, dtype=np.int32)
                 for env_idx in range(self.n_envs):
                     # Check if it's agent's turn in this environment
-                    agent_turn = (self.wrapper.envs.agent_selection[env_idx] == self.wrapper.players[env_idx])
+                    agent_turn = (
+                        self.wrapper.envs.agent_selection[env_idx]
+                        == self.wrapper.players[env_idx]
+                    )
                     if agent_turn:
                         legal_actions = np.where(obs["action_mask"][env_idx] == 1)[0]
-                        reset_actions[env_idx] = legal_actions[0] if len(legal_actions) > 0 else 0
+                        reset_actions[env_idx] = (
+                            legal_actions[0] if len(legal_actions) > 0 else 0
+                        )
 
                 obs, rewards, terminations, truncations, infos = self.wrapper.step(
                     reset_actions
@@ -214,7 +216,7 @@ class TestVectorMnkSelfPlayWrapperIntegration:
             # Get first legal action for each environment where it's agent's turn
             for env_idx in range(n_envs):
                 # Check if it's agent's turn in this environment
-                agent_turn = (wrapper.envs.agent_selection[env_idx] == wrapper.players[env_idx])
+                agent_turn = wrapper.envs.agent_selection[env_idx] == wrapper.players[env_idx]
                 if agent_turn:
                     legal = np.where(obs["action_mask"][env_idx] == 1)[0]
                     actions[env_idx] = legal[0] if len(legal) > 0 else 0
