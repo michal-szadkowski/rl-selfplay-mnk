@@ -17,8 +17,7 @@ def play_single_episode(
 ) -> Dict[str, Any]:
     """
     Plays a single episode between agent_policy and opponent_policy.
-    Returns a dictionary with results: 'agent_reward', 'opponent_reward', 'outcome'
-    where outcome is 'win', 'loss', 'draw' from agent's perspective.
+    Returns the outcome: 'win', 'loss', 'draw' from agent's perspective.
     """
     # Reset the environment
     env.reset(seed=seed)
@@ -38,15 +37,13 @@ def play_single_episode(
         agents[1]: opponent_policy if agent_is_first else agent_policy,
     }
 
-    # Track cumulative rewards for each agent
-    cumulative_rewards = {agent: 0.0 for agent in agents}
+    # Track final rewards to determine outcome
+    final_rewards = {}
 
     # Play the episode
     for agent in env.agent_iter():
         obs, reward, termination, truncation, info = env.last()
-
-        # Accumulate reward for the current agent
-        cumulative_rewards[agent] += reward
+        final_rewards[agent] = reward
 
         if not (termination or truncation):
             # Get action from the policy and step
@@ -55,27 +52,19 @@ def play_single_episode(
         else:
             env.step(None)
 
-    # Determine final rewards
-    agent_reward = (
-        cumulative_rewards[agents[0]] if agent_is_first else cumulative_rewards[agents[1]]
-    )
-    opponent_reward = (
-        cumulative_rewards[agents[1]] if agent_is_first else cumulative_rewards[agents[0]]
+    # Determine outcome from agent's perspective
+    agent_final_reward = (
+        final_rewards[agents[0]] if agent_is_first else final_rewards[agents[1]]
     )
 
-    # Determine outcome from agent's perspective
-    if agent_reward > opponent_reward:
+    if agent_final_reward > 0:
         outcome = "win"
-    elif agent_reward < opponent_reward:
+    elif agent_final_reward < 0:
         outcome = "loss"
     else:
         outcome = "draw"
 
-    return {
-        "agent_reward": agent_reward,
-        "opponent_reward": opponent_reward,
-        "outcome": outcome,
-    }
+    return {"outcome": outcome}
 
 
 def validate_agent(
@@ -121,19 +110,13 @@ def validate_agent(
     loss_rate = losses / num_episodes
     draw_rate = draws / num_episodes
 
-    avg_agent_reward = np.mean([r["agent_reward"] for r in results])
-    avg_opponent_reward = np.mean([r["opponent_reward"] for r in results])
-
     return {
-        "num_episodes": num_episodes,
         "wins": wins,
         "losses": losses,
         "draws": draws,
         "win_rate": win_rate,
         "loss_rate": loss_rate,
         "draw_rate": draw_rate,
-        "avg_agent_reward": avg_agent_reward,
-        "avg_opponent_reward": avg_opponent_reward,
     }
 
 
@@ -169,31 +152,37 @@ def run_validation(mnk, n_episodes, agent, benchmark_policy, device, seed=None):
         seed=seed + 1000 if seed is not None else None,
     )
 
+    # Calculate score rates (win * 1.0 + draw * 0.5)
+    random_score_rate = (random_stats["wins"] * 1.0 + random_stats["draws"] * 0.5) / n_episodes
+    benchmark_score_rate = (
+        benchmark_stats["wins"] * 1.0 + benchmark_stats["draws"] * 0.5
+    ) / n_episodes
+
     # Print validation results in a table format
     print("\nValidation Results:")
-    print("-" * 60)
+    print("-" * 55)
+    print(f"{'Opponent':<12} | {'Win Rate':<9} | {'Draw Rate':<10} | {'Score Rate':<11}")
+    print("-" * 55)
     print(
-        f"{'Opponent':<12} | {'Win Rate':<9} | {'Loss Rate':<10} | {'Draw Rate':<10} | {'Avg Reward':<11}"
-    )
-    print("-" * 60)
-    print(
-        f"{'Random':<12} | {random_stats['win_rate']:<9.3f} | {random_stats['loss_rate']:<10.3f} | {random_stats['draw_rate']:<10.3f} | {random_stats['avg_agent_reward']:<11.3f}"
+        f"{'Random':<12} | {random_stats['win_rate']:<9.3f} | {random_stats['draw_rate']:<10.3f} | {random_score_rate:<11.3f}"
     )
     print(
-        f"{'Benchmark':<12} | {benchmark_stats['win_rate']:<9.3f} | {benchmark_stats['loss_rate']:<10.3f} | {benchmark_stats['draw_rate']:<10.3f} | {benchmark_stats['avg_agent_reward']:<11.3f}"
+        f"{'Benchmark':<12} | {benchmark_stats['win_rate']:<9.3f} | {benchmark_stats['draw_rate']:<10.3f} | {benchmark_score_rate:<11.3f}"
     )
-    print("-" * 60)
+    print("-" * 55)
 
     # Set agent back to train mode
     agent.network.train()
 
     return {
         "validation/vs_random/win_rate": random_stats["win_rate"],
-        "validation/vs_random/loss_rate": random_stats["loss_rate"],
         "validation/vs_random/draw_rate": random_stats["draw_rate"],
-        "validation/vs_random/avg_reward": random_stats["avg_agent_reward"],
+        "validation/vs_random/win_count": random_stats["wins"],
+        "validation/vs_random/draw_count": random_stats["draws"],
+        "validation/vs_random/score_rate": random_score_rate,
         "validation/vs_benchmark/win_rate": benchmark_stats["win_rate"],
-        "validation/vs_benchmark/loss_rate": benchmark_stats["loss_rate"],
         "validation/vs_benchmark/draw_rate": benchmark_stats["draw_rate"],
-        "validation/vs_benchmark/avg_reward": benchmark_stats["avg_agent_reward"],
+        "validation/vs_benchmark/win_count": benchmark_stats["wins"],
+        "validation/vs_benchmark/draw_count": benchmark_stats["draws"],
+        "validation/vs_benchmark/score_rate": benchmark_score_rate,
     }

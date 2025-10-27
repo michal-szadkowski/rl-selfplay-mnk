@@ -6,6 +6,7 @@ from gymnasium.wrappers.vector import RecordEpisodeStatistics
 
 from alg.ppo import PPOAgent, TrainingMetrics
 from alg.resnet import SimpleResNetActorCritic
+from alg.entropy_scheduler import EntropyScheduler
 from env.mnk_game_env import create_mnk_env
 from selfplay.opponent_pool import OpponentPool
 from selfplay.policy import NNPolicy, BatchNNPolicy
@@ -25,8 +26,13 @@ def train_mnk():
         "total_environment_steps": 50_000_000,
         "validation_interval": 25,
         "validation_episodes": 100,
-        "benchmark_update_threshold": 0.60,
+        "benchmark_update_threshold_score": 0.65,
         "num_envs": 32,
+        "entropy_coef": 0.01,
+        "entropy_coef_schedule": {
+            "type": "linear",
+            "params": {"final_coef": 0.001, "total_steps": 40_000_000},
+        },
     }
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -50,6 +56,11 @@ def train_mnk():
         obs_shape = train_env.single_observation_space["observation"].shape
         action_dim = train_env.single_action_space.n
 
+        # Initialize entropy scheduler
+        entropy_scheduler = EntropyScheduler(
+            initial_coef=run.config.entropy_coef, schedule=run.config.entropy_coef_schedule
+        )
+
         # Initialize A2C agent with neural network
         network = SimpleResNetActorCritic(obs_shape, action_dim)
         agent = PPOAgent(
@@ -63,6 +74,7 @@ def train_mnk():
             device=device,
             num_envs=run.config.num_envs,
             ppo_epochs=run.config.ppo_epochs,
+            entropy_coef=run.config.entropy_coef,
         )
         run.watch(agent.network)
 
@@ -76,9 +88,11 @@ def train_mnk():
         total_iterations = run.config.total_environment_steps // steps_per_iteration
         print(f"Starting training for {total_iterations}")
 
+        current_env_steps = 0
         for i in range(total_iterations):
-            current_env_steps = (i + 1) * steps_per_iteration
             try:
+                agent.entropy_coef = entropy_scheduler.update(current_env_steps)
+
                 # Select random opponent from pool
                 opponent = opponent_pool.get_random_opponent()
                 train_env.unwrapped.set_opponent(opponent)
@@ -86,7 +100,7 @@ def train_mnk():
                 # Train and get metrics
                 metrics = agent.learn(train_env)
 
-                log_training_metrics(run, metrics, i, current_env_steps)
+                log_training_metrics(run, metrics, i, current_env_steps, agent.entropy_coef)
 
                 if i % 10 == 0 or metrics.mean_reward > 0.3:
                     opponent_pool.add_opponent(BatchNNPolicy(deepcopy(agent.network)))
@@ -106,12 +120,11 @@ def train_mnk():
                     )
                     run.log(validation_res, step=current_env_steps)
 
-                    if (
-                        validation_res["validation/vs_benchmark/win_rate"]
-                        > run.config.benchmark_update_threshold
-                    ):
+                    score_rate = validation_res["validation/vs_benchmark/score_rate"]
+
+                    if score_rate > run.config.benchmark_update_threshold_score:
                         print(
-                            f"--- New benchmark agent at step {i} ({current_env_steps:,} env steps)! ---"
+                            f"--- New benchmark agent at step {i} (Score Rate: {score_rate:.2f})! ---"
                         )
                         benchmark_policy = NNPolicy(deepcopy(agent.network))
 
@@ -126,14 +139,17 @@ def train_mnk():
                 handle_training_error(run, e, i, current_env_steps)
                 continue
 
+            current_env_steps = (i + 1) * steps_per_iteration
 
-def log_training_metrics(run, metrics: TrainingMetrics, iteration, env_steps):
+
+def log_training_metrics(run, metrics: TrainingMetrics, iteration, env_steps, entropy_coef):
     """Log training metrics."""
     print(
         f"Iter {iteration} | {env_steps:,} steps | "
         f"reward: {metrics.mean_reward:.3f} | "
         f"length: {metrics.mean_length:.1f} | "
         f"entropy: {metrics.entropy_loss:.4f} | "
+        f"entropy_coef: {entropy_coef:.4f} | "
         f"grad_norm: {metrics.grad_norm:.3f} | "
         f"clip: {metrics.clip_fraction:.3f}"
     )
@@ -145,6 +161,7 @@ def log_training_metrics(run, metrics: TrainingMetrics, iteration, env_steps):
             "training/actor_loss": metrics.actor_loss,
             "training/critic_loss": metrics.critic_loss,
             "training/entropy_loss": metrics.entropy_loss,
+            "training/entropy_coef": entropy_coef,
             "training/grad_norm": metrics.grad_norm,
             "training/clip_fraction": metrics.clip_fraction,
         },
