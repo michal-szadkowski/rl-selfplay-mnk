@@ -27,7 +27,8 @@ class RolloutBuffer:
     def add(self, obs, action, reward, value, log_prob, done, action_mask):
         """Add batch of transitions from one timestep (vectorized environments)."""
         if self.ptr >= self.n_steps:
-            raise IndexError("Buffer is full.")
+            self.reset()
+            raise IndexError("Buffer was full and has been reset.")
 
         self.observations[self.ptr].copy_(torch.as_tensor(obs, dtype=torch.float32, device=self.device))
         self.actions[self.ptr].copy_(torch.as_tensor(action, dtype=torch.long, device=self.device))

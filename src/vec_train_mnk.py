@@ -5,14 +5,13 @@ import wandb
 from gymnasium.wrappers.vector import RecordEpisodeStatistics
 
 from alg.ppo import PPOAgent, TrainingMetrics
-from alg.resnet import SimpleResNetActorCritic
 from alg.entropy_scheduler import EntropyScheduler
 from env.mnk_game_env import create_mnk_env
 from selfplay.opponent_pool import OpponentPool
 from selfplay.policy import NNPolicy, BatchNNPolicy
 from selfplay.vector_mnk_self_play import VectorMnkSelfPlayWrapper
 from validation import run_validation
-from model_export import ModelExporter
+from model_export import ModelExporter, create_model_from_architecture
 
 
 def train_mnk():
@@ -33,6 +32,7 @@ def train_mnk():
             "type": "linear",
             "params": {"final_coef": 0.001, "total_steps": 40_000_000},
         },
+        "architecture_name": "actor_critic",
     }
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -62,7 +62,9 @@ def train_mnk():
         )
 
         # Initialize A2C agent with neural network
-        network = SimpleResNetActorCritic(obs_shape, action_dim)
+        network = create_model_from_architecture(
+            run.config.architecture_name, obs_shape=obs_shape, action_dim=action_dim
+        )
         agent = PPOAgent(
             obs_shape,
             action_dim,

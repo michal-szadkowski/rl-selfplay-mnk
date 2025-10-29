@@ -143,6 +143,10 @@ class VectorMnkSelfPlayWrapper(gym.vector.VectorEnv):
             & ~(terminations.astype(bool) | truncations.astype(bool))
         )
 
+        # Early return if no opponent environments
+        if not np.any(opponent_envs_mask):
+            return
+
         # Get observations and prepare batch for opponent
         obs = self.envs.observe()
         opponent_observations = {
