@@ -32,6 +32,9 @@ def train_mnk():
             "type": "linear",
             "params": {"final_coef": 0.001, "total_steps": 40_000_000},
         },
+        "lr_schedule": {
+            "warmup_steps": 1_000_000,
+        },
         "architecture_name": "transformer_actor_critic",
     }
 
@@ -43,9 +46,6 @@ def train_mnk():
         model_exporter = ModelExporter(run.name or None)
 
         mnk = run.config.mnk
-
-        def env_fn():
-            return create_mnk_env(m=mnk[0], n=mnk[1], k=mnk[2])
 
         # Initialize vectorized self-play environment
         train_env = VectorMnkSelfPlayWrapper(
@@ -77,6 +77,7 @@ def train_mnk():
             num_envs=run.config.num_envs,
             ppo_epochs=run.config.ppo_epochs,
             entropy_coef=run.config.entropy_coef,
+            lr_schedule=run.config.lr_schedule,
         )
         run.watch(agent.network)
 
@@ -102,7 +103,9 @@ def train_mnk():
                 # Train and get metrics
                 metrics = agent.learn(train_env)
 
-                log_training_metrics(run, metrics, i, current_env_steps, agent.entropy_coef)
+                log_training_metrics(
+                    run, metrics, i, current_env_steps, agent.entropy_coef, agent
+                )
 
                 if i % 10 == 0 or metrics.mean_reward > 0.3:
                     opponent_pool.add_opponent(BatchNNPolicy(deepcopy(agent.network)))
@@ -144,14 +147,24 @@ def train_mnk():
             current_env_steps = (i + 1) * steps_per_iteration
 
 
-def log_training_metrics(run, metrics: TrainingMetrics, iteration, env_steps, entropy_coef):
+def log_training_metrics(
+    run,
+    metrics: TrainingMetrics,
+    iteration,
+    env_steps,
+    entropy_coef,
+    agent,
+):
     """Log training metrics."""
+    current_lr = agent.optimizer.param_groups[0]["lr"]
+
     print(
         f"Iter {iteration} | {env_steps:,} steps | "
         f"reward: {metrics.mean_reward:.3f} | "
         f"length: {metrics.mean_length:.1f} | "
         f"entropy: {metrics.entropy_loss:.4f} | "
         f"entropy_coef: {entropy_coef:.4f} | "
+        f"lr: {current_lr:.6f} | "
         f"grad_norm: {metrics.grad_norm:.3f} | "
         f"clip: {metrics.clip_fraction:.3f}"
     )
@@ -164,6 +177,7 @@ def log_training_metrics(run, metrics: TrainingMetrics, iteration, env_steps, en
             "training/critic_loss": metrics.critic_loss,
             "training/entropy_loss": metrics.entropy_loss,
             "training/entropy_coef": entropy_coef,
+            "training/learning_rate": current_lr,
             "training/grad_norm": metrics.grad_norm,
             "training/clip_fraction": metrics.clip_fraction,
         },

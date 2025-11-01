@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 from torch.distributions import Categorical
+from torch.optim.lr_scheduler import SequentialLR, LinearLR, ConstantLR
 from dataclasses import dataclass
 import numpy as np
 
@@ -127,6 +128,7 @@ class PPOAgent:
         entropy_coef=0.01,
         device="cpu",
         num_envs=1,
+        lr_schedule=None,
     ):
         """
         Initializes the PPO agent.
@@ -163,6 +165,32 @@ class PPOAgent:
         self.buffer = RolloutBuffer(
             self.n_steps, self.num_envs, obs_shape, action_dim, device=self.device
         )
+
+        # Initialize LR scheduler if warmup is configured
+        self.lr_scheduler = None
+        if lr_schedule:
+            self.lr_scheduler = self._create_lr_scheduler(lr_schedule)
+
+    def _create_lr_scheduler(self, lr_schedule):
+        """Create learning rate scheduler with warmup."""
+        warmup_steps = lr_schedule.get("warmup_steps", 0)
+
+        if warmup_steps > 0:
+            # Convert environment steps to iterations
+            steps_per_iteration = self.num_envs * self.n_steps
+            warmup_iterations = max(1, warmup_steps // steps_per_iteration)
+            
+            # Warmup phase: linear from 0 to target LR
+            warmup = LinearLR(
+                self.optimizer, start_factor=0.01, end_factor=1.0, total_iters=warmup_iterations
+            )
+            # Main training phase: constant LR
+            main = ConstantLR(self.optimizer, factor=1.0)
+
+            return SequentialLR(
+                self.optimizer, schedulers=[warmup, main], milestones=[warmup_iterations]
+            )
+        return None
 
     def learn(self, vec_env):
         """
@@ -226,7 +254,11 @@ class PPOAgent:
             self.update_networks()
         )
 
-        # 4. Reset the buffer for the next rollout
+        # 4. Step the learning rate scheduler
+        if self.lr_scheduler:
+            self.lr_scheduler.step()
+
+        # 5. Reset the buffer for the next rollout
         self.buffer.reset()
 
         # Create and return TrainingMetrics object
