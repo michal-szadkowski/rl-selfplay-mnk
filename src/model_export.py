@@ -5,6 +5,7 @@ from typing import List, Optional, Dict, Any
 import torch
 from alg.ppo import ActorCriticModule
 from alg.resnet import SimpleResNetActorCritic
+from alg.transformer import TransformerActorCritic
 
 
 class ModelExporter:
@@ -99,9 +100,11 @@ def create_model_from_architecture(architecture_name: str, **kwargs) -> torch.nn
         return ActorCriticModule(**kwargs)
     elif architecture_name == "simple_resnet_actor_critic":
         return SimpleResNetActorCritic(**kwargs)
+    elif architecture_name == "transformer_actor_critic":
+        return TransformerActorCritic(**kwargs)
     else:
         raise ValueError(
-            f"Unknown architecture: {architecture_name}. Known architectures: actor_critic, simple_resnet_actor_critic"
+            f"Unknown architecture: {architecture_name}. Known architectures: actor_critic, simple_resnet_actor_critic, transformer_actor_critic"
         )
 
 

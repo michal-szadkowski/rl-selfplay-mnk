@@ -32,7 +32,7 @@ def train_mnk():
             "type": "linear",
             "params": {"final_coef": 0.001, "total_steps": 40_000_000},
         },
-        "architecture_name": "actor_critic",
+        "architecture_name": "transformer_actor_critic",
     }
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -83,7 +83,7 @@ def train_mnk():
         benchmark_policy = NNPolicy(deepcopy(agent.network))
 
         # Initialize opponent pool
-        opponent_pool = OpponentPool(max_size=4)
+        opponent_pool = OpponentPool(max_size=5)
         opponent_pool.add_opponent(BatchNNPolicy(deepcopy(agent.network)))
 
         steps_per_iteration = run.config.num_envs * run.config.n_steps
