@@ -28,7 +28,7 @@ class TransformerActorCritic(nn.Module):
         self.action_dim = action_dim
         self.embed_dim = embed_dim
 
-        self._architecture_name = "transformer_actor_critic"
+        self._architecture_name = "transformer"
         self._architecture_params = {
             "obs_shape": [int(x) for x in obs_shape],
             "action_dim": int(action_dim),

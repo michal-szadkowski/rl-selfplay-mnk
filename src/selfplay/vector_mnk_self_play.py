@@ -133,7 +133,6 @@ class VectorMnkSelfPlayWrapper(gym.vector.VectorEnv):
         """Execute opponent move in all environments where opponent should play."""
         assert self.opponent_policy is not None
 
-        # Get current state to check terminations
         _, terminations, truncations, _, _ = self.envs.last()
 
         # Determine which environments opponent should play in
@@ -143,22 +142,18 @@ class VectorMnkSelfPlayWrapper(gym.vector.VectorEnv):
             & ~(terminations.astype(bool) | truncations.astype(bool))
         )
 
-        # Early return if no opponent environments
-        if not np.any(opponent_envs_mask):
-            return
-
-        # Get observations and prepare batch for opponent
-        obs = self.envs.observe()
-        opponent_observations = {
-            "observation": obs["observation"][opponent_envs_mask],
-            "action_mask": obs["action_mask"][opponent_envs_mask],
-        }
-
-        # Get and apply opponent actions
-        opponent_actions = self.opponent_policy.act(opponent_observations)
-
         step_actions = np.full(self.num_envs, None, dtype=object)
-        step_actions[opponent_envs_mask] = opponent_actions
+
+        if np.any(opponent_envs_mask):
+            obs = self.envs.observe()
+            opponent_observations = {
+                "observation": obs["observation"][opponent_envs_mask],
+                "action_mask": obs["action_mask"][opponent_envs_mask],
+            }
+
+            opponent_actions = self.opponent_policy.act(opponent_observations)
+            step_actions[opponent_envs_mask] = opponent_actions
+
         self.envs.step(step_actions)
 
     def _handle_autoreset(self) -> None:

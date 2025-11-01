@@ -35,7 +35,7 @@ def train_mnk():
         "lr_schedule": {
             "warmup_steps": 1_000_000,
         },
-        "architecture_name": "transformer_actor_critic",
+        "architecture_name": "resnet",
     }
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
