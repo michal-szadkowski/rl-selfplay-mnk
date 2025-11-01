@@ -6,6 +6,7 @@ from gymnasium.wrappers.vector import RecordEpisodeStatistics
 
 from alg.ppo import PPOAgent, TrainingMetrics
 from alg.entropy_scheduler import EntropyScheduler
+from alg.lr_scheduler import create_lr_scheduler
 from env.mnk_game_env import create_mnk_env
 from selfplay.opponent_pool import OpponentPool
 from selfplay.policy import NNPolicy, BatchNNPolicy
@@ -32,9 +33,7 @@ def train_mnk():
             "type": "linear",
             "params": {"final_coef": 0.001, "total_steps": 40_000_000},
         },
-        "lr_schedule": {
-            "warmup_steps": 1_000_000,
-        },
+        "lr_warmup_steps": 1_000_000,
         "architecture_name": "resnet",
     }
 
@@ -65,6 +64,18 @@ def train_mnk():
         network = create_model_from_architecture(
             run.config.architecture_name, obs_shape=obs_shape, action_dim=action_dim
         )
+        
+        # Create optimizer first
+        optimizer = torch.optim.AdamW(
+            network.parameters(), lr=run.config.learning_rate, weight_decay=1e-4
+        )
+        
+        # Create LR scheduler if configured
+        lr_scheduler_config = {"warmup_steps": run.config.lr_warmup_steps} if run.config.lr_warmup_steps > 0 else None
+        lr_scheduler = create_lr_scheduler(
+            optimizer, lr_scheduler_config, run.config.num_envs, run.config.n_steps
+        )
+        
         agent = PPOAgent(
             obs_shape,
             action_dim,
@@ -77,7 +88,8 @@ def train_mnk():
             num_envs=run.config.num_envs,
             ppo_epochs=run.config.ppo_epochs,
             entropy_coef=run.config.entropy_coef,
-            lr_schedule=run.config.lr_schedule,
+            lr_scheduler=lr_scheduler,
+            optimizer=optimizer,
         )
         run.watch(agent.network)
 

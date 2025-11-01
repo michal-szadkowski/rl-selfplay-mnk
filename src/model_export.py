@@ -6,7 +6,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 import torch
 
-from alg.ppo import CnnActorCritic
+from alg.cnn import CnnActorCritic
 from alg.resnet import ResNetActorCritic
 from alg.transformer import TransformerActorCritic
 
