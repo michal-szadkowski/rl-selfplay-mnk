@@ -56,14 +56,15 @@ class ActorCriticModule(nn.Module):
 
         # Actor and critic heads
         self.actor = nn.Sequential(
-            nn.Linear(flattened_size, action_dim),
+            nn.Linear(flattened_size, 256),
+            nn.ReLU(),
+            nn.Linear(256, action_dim),
         )
 
         self.critic = nn.Sequential(
-            nn.Linear(flattened_size, 1024),
-            nn.Tanh(),
-            nn.Linear(1024, 1),
-            nn.Tanh(),
+            nn.Linear(flattened_size, 256),
+            nn.ReLU(),
+            nn.Linear(256, 1),
         )
 
         self._initialize_weights()
