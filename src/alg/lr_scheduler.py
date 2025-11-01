@@ -4,25 +4,19 @@ import torch.optim as optim
 from torch.optim.lr_scheduler import SequentialLR, LinearLR, ConstantLR
 
 
-def create_lr_scheduler(optimizer, config, num_envs, n_steps):
+def create_lr_scheduler(optimizer, warmup_steps, num_envs, n_steps):
     """
-    Create learning rate scheduler based on configuration.
+    Create learning rate scheduler with warmup.
     
     Args:
         optimizer: PyTorch optimizer to wrap
-        config: Scheduler configuration dictionary
+        warmup_steps: Number of warmup steps (0 to disable)
         num_envs: Number of parallel environments
         n_steps: Number of steps per rollout
         
     Returns:
         torch.optim.lr_scheduler._LRScheduler or None
     """
-    if not config:
-        return None
-    
-    # Extract warmup_steps from either format
-    warmup_steps = config.get("warmup_steps", 0)
-    
     if warmup_steps <= 0:
         return None
     

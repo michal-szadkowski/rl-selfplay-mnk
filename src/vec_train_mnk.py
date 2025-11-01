@@ -7,12 +7,57 @@ from gymnasium.wrappers.vector import RecordEpisodeStatistics
 from alg.ppo import PPOAgent, TrainingMetrics
 from alg.entropy_scheduler import EntropyScheduler
 from alg.lr_scheduler import create_lr_scheduler
-from env.mnk_game_env import create_mnk_env
 from selfplay.opponent_pool import OpponentPool
 from selfplay.policy import NNPolicy, BatchNNPolicy
 from selfplay.vector_mnk_self_play import VectorMnkSelfPlayWrapper
 from validation import run_validation
 from model_export import ModelExporter, create_model_from_architecture
+
+
+def setup_environment(config):
+    """Initialize vectorized self-play environment and return env, obs_shape, action_dim."""
+    train_env = VectorMnkSelfPlayWrapper(
+        m=config.mnk[0], n=config.mnk[1], k=config.mnk[2], n_envs=config.num_envs
+    )
+    train_env = RecordEpisodeStatistics(train_env)
+
+    obs_shape = train_env.single_observation_space["observation"].shape
+    action_dim = train_env.single_action_space.n
+    
+    return train_env, obs_shape, action_dim
+
+
+def create_agent(config, obs_shape, action_dim, device):
+    """Initialize PPO agent with network, optimizer, and scheduler."""
+    network = create_model_from_architecture(
+        config.architecture_name, obs_shape=obs_shape, action_dim=action_dim
+    )
+    
+    optimizer = torch.optim.AdamW(
+        network.parameters(), lr=config.learning_rate, weight_decay=1e-4
+    )
+    
+    lr_scheduler = create_lr_scheduler(
+        optimizer, config.lr_warmup_steps, config.num_envs, config.n_steps
+    )
+    
+    agent = PPOAgent(
+        obs_shape,
+        action_dim,
+        network,
+        n_steps=config.n_steps,
+        learning_rate=config.learning_rate,
+        gamma=config.gamma,
+        batch_size=config.batch_size,
+        device=device,
+        num_envs=config.num_envs,
+        ppo_epochs=config.ppo_epochs,
+        entropy_coef=config.entropy_coef,
+        lr_scheduler=lr_scheduler,
+        optimizer=optimizer,
+    )
+    
+    return agent
 
 
 def train_mnk():
@@ -41,61 +86,20 @@ def train_mnk():
     print(f"Using device: {device}")
 
     with wandb.init(config=default_config, project="mnk_995") as run:
-        # Initialize model exporter
         model_exporter = ModelExporter(run.name or None)
-
         mnk = run.config.mnk
 
-        # Initialize vectorized self-play environment
-        train_env = VectorMnkSelfPlayWrapper(
-            m=mnk[0], n=mnk[1], k=mnk[2], n_envs=run.config.num_envs
-        )
-        train_env = RecordEpisodeStatistics(train_env)
+        train_env, obs_shape, action_dim = setup_environment(run.config)
 
-        obs_shape = train_env.single_observation_space["observation"].shape
-        action_dim = train_env.single_action_space.n
-
-        # Initialize entropy scheduler
         entropy_scheduler = EntropyScheduler(
             initial_coef=run.config.entropy_coef, schedule=run.config.entropy_coef_schedule
         )
 
-        # Initialize A2C agent with neural network
-        network = create_model_from_architecture(
-            run.config.architecture_name, obs_shape=obs_shape, action_dim=action_dim
-        )
-        
-        # Create optimizer first
-        optimizer = torch.optim.AdamW(
-            network.parameters(), lr=run.config.learning_rate, weight_decay=1e-4
-        )
-        
-        # Create LR scheduler if configured
-        lr_scheduler_config = {"warmup_steps": run.config.lr_warmup_steps} if run.config.lr_warmup_steps > 0 else None
-        lr_scheduler = create_lr_scheduler(
-            optimizer, lr_scheduler_config, run.config.num_envs, run.config.n_steps
-        )
-        
-        agent = PPOAgent(
-            obs_shape,
-            action_dim,
-            network,
-            n_steps=run.config.n_steps,
-            learning_rate=run.config.learning_rate,
-            gamma=run.config.gamma,
-            batch_size=run.config.batch_size,
-            device=device,
-            num_envs=run.config.num_envs,
-            ppo_epochs=run.config.ppo_epochs,
-            entropy_coef=run.config.entropy_coef,
-            lr_scheduler=lr_scheduler,
-            optimizer=optimizer,
-        )
+        agent = create_agent(run.config, obs_shape, action_dim, device)
         run.watch(agent.network)
 
         benchmark_policy = NNPolicy(deepcopy(agent.network))
 
-        # Initialize opponent pool
         opponent_pool = OpponentPool(max_size=5)
         opponent_pool.add_opponent(BatchNNPolicy(deepcopy(agent.network)))
 
