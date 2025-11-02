@@ -41,6 +41,13 @@ def create_agent(config, obs_shape, action_dim, device):
         optimizer, config.lr_warmup_steps, config.num_envs, config.n_steps
     )
     
+    entropy_scheduler = EntropyScheduler(
+        initial_coef=config.entropy_coef, 
+        schedule=config.entropy_coef_schedule,
+        num_envs=config.num_envs,
+        n_steps=config.n_steps
+    )
+    
     agent = PPOAgent(
         obs_shape,
         action_dim,
@@ -54,6 +61,7 @@ def create_agent(config, obs_shape, action_dim, device):
         ppo_epochs=config.ppo_epochs,
         entropy_coef=config.entropy_coef,
         lr_scheduler=lr_scheduler,
+        entropy_scheduler=entropy_scheduler,
         optimizer=optimizer,
     )
     
@@ -87,13 +95,8 @@ def train_mnk():
 
     with wandb.init(config=default_config, project="mnk_995") as run:
         model_exporter = ModelExporter(run.name or None)
-        mnk = run.config.mnk
 
         train_env, obs_shape, action_dim = setup_environment(run.config)
-
-        entropy_scheduler = EntropyScheduler(
-            initial_coef=run.config.entropy_coef, schedule=run.config.entropy_coef_schedule
-        )
 
         agent = create_agent(run.config, obs_shape, action_dim, device)
         run.watch(agent.network)
@@ -110,7 +113,6 @@ def train_mnk():
         current_env_steps = 0
         for i in range(total_iterations):
             try:
-                agent.entropy_coef = entropy_scheduler.update(current_env_steps)
 
                 # Select random opponent from pool
                 opponent = opponent_pool.get_random_opponent()
@@ -132,7 +134,7 @@ def train_mnk():
                         f"--- Running validation at step {i} ({current_env_steps:,} env steps) ---"
                     )
                     validation_res = run_validation(
-                        mnk,
+                        run.config.mnk,
                         run.config.validation_episodes,
                         agent,
                         benchmark_policy,

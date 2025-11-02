@@ -38,6 +38,7 @@ class PPOAgent:
         device="cpu",
         num_envs=1,
         lr_scheduler=None,
+        entropy_scheduler=None,
         optimizer=None,
     ):
         """
@@ -57,6 +58,7 @@ class PPOAgent:
             device (str): The device to run the calculations on.
             num_envs (int): The number of parallel environments.
             lr_scheduler: External learning rate scheduler (optional).
+            entropy_scheduler: External entropy coefficient scheduler (optional).
             optimizer: External optimizer (optional, created if not provided).
         """
         self.device = device
@@ -81,8 +83,9 @@ class PPOAgent:
             self.n_steps, self.num_envs, obs_shape, action_dim, device=self.device
         )
 
-        # Set external LR scheduler
+        # Set external schedulers
         self.lr_scheduler = lr_scheduler
+        self.entropy_scheduler = entropy_scheduler
 
     def learn(self, vec_env):
         """
@@ -146,9 +149,12 @@ class PPOAgent:
             self.update_networks()
         )
 
-        # 4. Step the learning rate scheduler
+        # 4. Step the learning rate scheduler and entropy scheduler
         if self.lr_scheduler:
             self.lr_scheduler.step()
+        if self.entropy_scheduler:
+            self.entropy_scheduler.step()
+            self.entropy_coef = self.entropy_scheduler.get_last_coef()
 
         # 5. Reset the buffer for the next rollout
         self.buffer.reset()
