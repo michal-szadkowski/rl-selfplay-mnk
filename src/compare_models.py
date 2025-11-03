@@ -6,6 +6,7 @@ from datetime import datetime
 from model_comparison.model_loader import ModelLoader
 from model_comparison.match_runner import MatchRunner, GameConfig
 from model_comparison.elo_tracker import ELOTracker
+from model_comparison.visualizer import ResultsVisualizer
 
 
 def parse_arguments():
@@ -60,7 +61,7 @@ Examples:
         "--device",
         "-d",
         choices=["cpu", "cuda", "mps"],
-        default="cpu",
+        default="cuda",
         help="Device to run models on (default: cpu)",
     )
 
@@ -101,7 +102,7 @@ def main():
     )
     print(f"\nStarting tournament with {len(models)} models...")
 
-    match_results = MatchRunner(game_config).run_tournament(models, args.games)
+    match_results = MatchRunner(game_config).run_tournament_batched(models, args.games)
     if match_results.empty:
         print("No matches were played!")
         sys.exit(1)
@@ -113,7 +114,6 @@ def main():
     output_dir = save_results(args.output, elo_ratings, match_results, args)
 
     # Generate visualizations
-    from .model_comparison.visualizer import ResultsVisualizer
 
     ResultsVisualizer(output_dir).create_all_visualizations(
         {
