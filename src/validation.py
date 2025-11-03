@@ -160,16 +160,15 @@ def run_validation(mnk, n_episodes, agent, benchmark_policy, device, seed=None):
 
     # Print validation results in a table format
     print("\nValidation Results:")
-    print("-" * 55)
-    print(f"{'Opponent':<12} | {'Win Rate':<9} | {'Draw Rate':<10} | {'Score Rate':<11}")
-    print("-" * 55)
     print(
-        f"{'Random':<12} | {random_stats['win_rate']:<9.3f} | {random_stats['draw_rate']:<10.3f} | {random_score_rate:<11.3f}"
+        f"{'Opponent':<12} | {'Win Rate':<9} | {'Draw Rate':<10} | {'Loss Rate':<10} | {'Score Rate':<11}"
     )
     print(
-        f"{'Benchmark':<12} | {benchmark_stats['win_rate']:<9.3f} | {benchmark_stats['draw_rate']:<10.3f} | {benchmark_score_rate:<11.3f}"
+        f"{'Random':<12} | {random_stats['win_rate']:<9.3f} | {random_stats['draw_rate']:<10.3f} | {random_stats['loss_rate']:<10.3f} | {random_score_rate:<11.3f}"
     )
-    print("-" * 55)
+    print(
+        f"{'Benchmark':<12} | {benchmark_stats['win_rate']:<9.3f} | {benchmark_stats['draw_rate']:<10.3f} | {benchmark_stats['loss_rate']:<10.3f} | {benchmark_score_rate:<11.3f}\n"
+    )
 
     # Set agent back to train mode
     agent.network.train()
@@ -177,12 +176,10 @@ def run_validation(mnk, n_episodes, agent, benchmark_policy, device, seed=None):
     return {
         "validation/vs_random/win_rate": random_stats["win_rate"],
         "validation/vs_random/draw_rate": random_stats["draw_rate"],
-        "validation/vs_random/win_count": random_stats["wins"],
-        "validation/vs_random/draw_count": random_stats["draws"],
+        "validation/vs_random/loss_rate": random_stats["loss_rate"],
         "validation/vs_random/score_rate": random_score_rate,
         "validation/vs_benchmark/win_rate": benchmark_stats["win_rate"],
         "validation/vs_benchmark/draw_rate": benchmark_stats["draw_rate"],
-        "validation/vs_benchmark/win_count": benchmark_stats["wins"],
-        "validation/vs_benchmark/draw_count": benchmark_stats["draws"],
+        "validation/vs_benchmark/loss_rate": benchmark_stats["loss_rate"],
         "validation/vs_benchmark/score_rate": benchmark_score_rate,
     }

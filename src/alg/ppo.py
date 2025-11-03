@@ -18,6 +18,8 @@ class TrainingMetrics:
     entropy_loss: float
     grad_norm: float
     clip_fraction: float
+    explained_variance: float
+    approx_kl: float
 
 
 class PPOAgent:
@@ -145,9 +147,15 @@ class PPOAgent:
         self.buffer.compute_advantages_and_returns(last_values, self.gamma, self.gae_lambda)
 
         # 3. Update networks using the full rollout
-        actor_loss, critic_loss, entropy_loss, grad_norm, clip_fraction = (
-            self.update_networks()
-        )
+        (
+            actor_loss,
+            critic_loss,
+            entropy_loss,
+            grad_norm,
+            clip_fraction,
+            explained_var,
+            approx_kl,
+        ) = self.update_networks()
 
         # 4. Step the learning rate scheduler and entropy scheduler
         if self.lr_scheduler:
@@ -169,6 +177,8 @@ class PPOAgent:
                 entropy_loss=entropy_loss,
                 grad_norm=grad_norm,
                 clip_fraction=clip_fraction,
+                explained_variance=explained_var,
+                approx_kl=approx_kl,
             )
         return TrainingMetrics(
             mean_reward=0.0,
@@ -178,6 +188,8 @@ class PPOAgent:
             entropy_loss=entropy_loss,
             grad_norm=grad_norm,
             clip_fraction=clip_fraction,
+            explained_variance=explained_var,
+            approx_kl=approx_kl,
         )
 
     def update_networks(self):
@@ -190,6 +202,8 @@ class PPOAgent:
         entropy_losses = []
         grad_norms = []
         clip_fractions = []
+        explained_vars = [] 
+        approx_kls = [] 
 
         # Perform multiple PPO epochs on the same rollout data
         for epoch in range(self.ppo_epochs):
@@ -222,6 +236,26 @@ class PPOAgent:
                     * advantages
                 )
                 actor_loss = -torch.min(surr1, surr2).mean()
+
+                with torch.no_grad():
+                    # Explained Variance: How well the critic network predicts actual returns
+                    returns_var = returns.var()
+                    # Protection against division by zero if all returns are the same
+                    if returns_var > 1e-8:
+                        explained_var = (
+                            1
+                            - F.mse_loss(values.squeeze(), returns, reduction="mean")
+                            / returns_var
+                        )
+                    else:
+                        # If return variance is zero, it cannot be explained
+                        explained_var = torch.tensor(0.0, device=self.device)
+                    explained_vars.append(explained_var.item())
+
+                    # Approximate KL Divergence: How much the policy has changed
+                    log_ratio = new_log_probs - old_log_probs
+                    approx_kl = torch.mean((torch.exp(log_ratio) - 1) - log_ratio)
+                    approx_kls.append(approx_kl.item())
 
                 # Calculate clip fraction (percentage of clips)
                 clip_fraction = (torch.abs(ratio - 1.0) > self.clip_range).float().mean()
@@ -260,4 +294,6 @@ class PPOAgent:
             np.mean(entropy_losses),
             np.mean(grad_norms),
             np.mean(clip_fractions),
+            np.mean(explained_vars),
+            np.mean(approx_kls),
         )

@@ -184,7 +184,9 @@ def log_training_metrics(
         f"entropy_coef: {entropy_coef:.4f} | "
         f"lr: {current_lr:.6f} | "
         f"grad_norm: {metrics.grad_norm:.3f} | "
-        f"clip: {metrics.clip_fraction:.3f}"
+        f"clip: {metrics.clip_fraction:.3f} | "
+        f"explained_var: {metrics.explained_variance:.3f} | "
+        f"approx_kl: {metrics.approx_kl:.4f}"
     )
 
     run.log(
@@ -198,6 +200,8 @@ def log_training_metrics(
             "training/learning_rate": current_lr,
             "training/grad_norm": metrics.grad_norm,
             "training/clip_fraction": metrics.clip_fraction,
+            "training/explained_variance": metrics.explained_variance,
+            "training/approx_kl": metrics.approx_kl,
         },
         step=env_steps,
     )
