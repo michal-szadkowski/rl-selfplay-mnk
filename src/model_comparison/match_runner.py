@@ -226,18 +226,18 @@ class MatchRunner:
 
                 # Cleanup column batch if different
                 if col_start != row_start:
-                    self._cleanup_batch_gpu(loaded_col)
+                    self._cleanup_batch_gpu(loaded_col, hard=False)
 
             # Cleanup row batch
-            self._cleanup_batch_gpu(loaded_row)
+            self._cleanup_batch_gpu(loaded_row, hard=True)
 
         pbar.close()
         return pd.concat(all_results, ignore_index=True) if all_results else pd.DataFrame()
 
-    def _cleanup_batch_gpu(self, loaded_batch: List[Tuple[ModelInfo, BatchNNPolicy]]) -> None:
+    def _cleanup_batch_gpu(self, loaded_batch: List[Tuple[ModelInfo, BatchNNPolicy]], hard: bool = False) -> None:
         """Clean up batch of GPU models."""
         for model, policy in loaded_batch:
-            model.unload_model()
+            model.unload_model(hard=hard)
             del policy
 
         gc.collect()

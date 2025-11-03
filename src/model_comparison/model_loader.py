@@ -40,12 +40,16 @@ class ModelInfo:
                 self.model = self.model.to(device)
         return self.model
 
-    def unload_model(self) -> None:
-        """Unload model from GPU memory to CPU RAM."""
+    def unload_model(self, hard: bool = False) -> None:
+        """Unload model from GPU memory to CPU RAM, or completely from RAM if hard=True."""
         if self.model is not None:
             # Move to CPU if on GPU to free VRAM but keep model in RAM
             if hasattr(self.model, "cuda") and next(self.model.parameters()).is_cuda:
                 self.model.cpu()
+            # Hard unload: completely remove from RAM
+            if hard:
+                del self.model
+                self.model = None
 
 
 class ModelLoader:
