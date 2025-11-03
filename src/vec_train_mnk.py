@@ -23,7 +23,7 @@ def setup_environment(config):
 
     obs_shape = train_env.single_observation_space["observation"].shape
     action_dim = train_env.single_action_space.n
-    
+
     return train_env, obs_shape, action_dim
 
 
@@ -32,22 +32,22 @@ def create_agent(config, obs_shape, action_dim, device):
     network = create_model_from_architecture(
         config.architecture_name, obs_shape=obs_shape, action_dim=action_dim
     )
-    
+
     optimizer = torch.optim.AdamW(
         network.parameters(), lr=config.learning_rate, weight_decay=1e-4
     )
-    
+
     lr_scheduler = create_lr_scheduler(
         optimizer, config.lr_warmup_steps, config.num_envs, config.n_steps
     )
-    
+
     entropy_scheduler = EntropyScheduler(
-        initial_coef=config.entropy_coef, 
+        initial_coef=config.entropy_coef,
         schedule=config.entropy_coef_schedule,
         num_envs=config.num_envs,
-        n_steps=config.n_steps
+        n_steps=config.n_steps,
     )
-    
+
     agent = PPOAgent(
         obs_shape,
         action_dim,
@@ -63,30 +63,39 @@ def create_agent(config, obs_shape, action_dim, device):
         lr_scheduler=lr_scheduler,
         entropy_scheduler=entropy_scheduler,
         optimizer=optimizer,
+        clip_range=config.clip_range,
     )
-    
+
     return agent
 
 
 def train_mnk():
     default_config = {
         "mnk": (9, 9, 5),
+        # lr
         "learning_rate": 1e-4,
-        "gamma": 0.98,
-        "batch_size": 1024,
-        "n_steps": 256,
-        "ppo_epochs": 4,
-        "total_environment_steps": 50_000_000,
-        "validation_interval": 25,
-        "validation_episodes": 100,
-        "benchmark_update_threshold_score": 0.65,
-        "num_envs": 32,
+        "lr_warmup_steps": 1_000_000,
+        # entropy
         "entropy_coef": 0.01,
         "entropy_coef_schedule": {
             "type": "linear",
             "params": {"final_coef": 0.001, "total_steps": 40_000_000},
         },
-        "lr_warmup_steps": 1_000_000,
+        # ppo
+        "gamma": 0.98,
+        "clip_range": 0.2,
+        "batch_size": 1024,
+        "n_steps": 256,
+        "ppo_epochs": 4,
+        "total_environment_steps": 50_000_000,
+        "num_envs": 32,
+        # validation
+        "benchmark_update_threshold_score": 0.65,
+        "validation_interval": 25,
+        "validation_episodes": 100,
+        # selfplay
+        "opponent_pool": 5,
+        #
         "architecture_name": "resnet",
     }
 
@@ -103,7 +112,7 @@ def train_mnk():
 
         benchmark_policy = NNPolicy(deepcopy(agent.network))
 
-        opponent_pool = OpponentPool(max_size=5)
+        opponent_pool = OpponentPool(max_size=run.config.opponent_pool)
         opponent_pool.add_opponent(BatchNNPolicy(deepcopy(agent.network)))
 
         steps_per_iteration = run.config.num_envs * run.config.n_steps
@@ -157,6 +166,10 @@ def train_mnk():
                         )
 
                         run.log({"validation/new_benchmark_step": i}, step=current_env_steps)
+                    else:
+                        model_exporter.export_model(
+                            agent.network, i, is_benchmark_breaker=False
+                        )
 
             except Exception as e:
                 handle_training_error(run, e, i, current_env_steps)
