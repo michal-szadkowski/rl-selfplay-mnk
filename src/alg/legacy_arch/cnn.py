@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from torch.distributions import Categorical
-from .weight_init import initialize_actor_critic_weights
+from ..weight_init import initialize_actor_critic_weights
 
 
 class CnnActorCritic(nn.Module):

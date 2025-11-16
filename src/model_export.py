@@ -6,15 +6,27 @@ from typing import Any, Callable, Dict, List, Optional
 
 import torch
 
-from alg.cnn import CnnActorCritic
-from alg.resnet import ResNetActorCritic
-from alg.transformer import TransformerActorCritic
+from alg.legacy_arch.cnn import CnnActorCritic
+from alg.legacy_arch.resnet import ResNetActorCritic
+from alg.legacy_arch.transformer import TransformerActorCritic
+from alg.architectures.cnn import CnnSActorCritic, CnnLActorCritic
+from alg.architectures.resnet import ResNetSActorCritic, ResNetLActorCritic
+from alg.architectures.transformer import (
+    TransformerSActorCritic,
+    TransformerLActorCritic,
+)
 
 
 ARCHITECTURE_REGISTRY: Dict[str, Callable[..., torch.nn.Module]] = {
     "cnn": CnnActorCritic,
     "resnet": ResNetActorCritic,
     "transformer": TransformerActorCritic,
+    "cnn_s": CnnSActorCritic,
+    "cnn_l": CnnLActorCritic,
+    "resnet_s": ResNetSActorCritic,
+    "resnet_l": ResNetLActorCritic,
+    "transformer_s": TransformerSActorCritic,
+    "transformer_l": TransformerLActorCritic,
 }
 
 
@@ -70,7 +82,10 @@ class ModelExporter:
         return datetime.now().strftime("%Y%m%d_%H%M%S")
 
     def export_model(
-        self, network: torch.nn.Module, iteration: int, is_benchmark_breaker: bool = False
+        self,
+        network: torch.nn.Module,
+        iteration: int,
+        is_benchmark_breaker: bool = False,
     ) -> str:
         """Export a model with automatic architecture detection."""
         self._validate_exportable(network)
@@ -117,12 +132,16 @@ def create_model_from_architecture(architecture_name: str, **kwargs) -> torch.nn
     return ARCHITECTURE_REGISTRY[architecture_name](**kwargs)
 
 
-def load_any_model(model_dir: str, model_id: str, device: str = "cpu") -> torch.nn.Module:
+def load_any_model(
+    model_dir: str, model_id: str, device: str = "cpu"
+) -> torch.nn.Module:
     """Load model from any directory without knowing architecture beforehand."""
     metadata_path = os.path.join(model_dir, f"{model_id}.json")
 
     if not os.path.exists(metadata_path):
-        raise FileNotFoundError(f"Metadata for model {model_id} not found in {model_dir}")
+        raise FileNotFoundError(
+            f"Metadata for model {model_id} not found in {model_dir}"
+        )
 
     with open(metadata_path, "r") as f:
         metadata_dict = json.load(f)

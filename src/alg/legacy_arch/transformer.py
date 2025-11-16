@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import Categorical
-from .weight_init import initialize_actor_critic_weights
+from ..weight_init import initialize_actor_critic_weights
 
 
 class TransformerActorCritic(nn.Module):
