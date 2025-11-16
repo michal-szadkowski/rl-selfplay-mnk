@@ -4,48 +4,43 @@ from torch.distributions import Categorical
 from .weight_init import initialize_actor_critic_weights
 
 
-class CnnActorCritic(nn.Module):
+class CnnConv1x1ActorCritic(nn.Module):
     def __init__(self, obs_shape, action_dim):
         super().__init__()
-        # obs_shape is expected to be (channels, height, width), e.g., (2, 9, 9)
-        channels, m, n = obs_shape
-
-        # Store action_dim for use in initialization
+        channels, h, w = obs_shape
         self.action_dim = action_dim
 
-        # Architecture info for model export
-        self._architecture_name = "cnn"
+        self._architecture_name = "cnn_conv1x1"
         self._architecture_params = {
             "obs_shape": [int(x) for x in obs_shape],
             "action_dim": int(action_dim),
         }
 
-        # Convolutional body
         self.shared_body = nn.Sequential(
-            nn.Conv2d(in_channels=channels, out_channels=64, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.Flatten(),
+            nn.Conv2d(channels, 64, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(64, 64, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(64, 64, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
         )
 
-        # Calculate the flattened size dynamically
-        with torch.no_grad():
-            dummy_input = torch.zeros(1, *obs_shape)
-            flattened_size = self.shared_body(dummy_input).shape[1]
+        actor_flattened_size = 2 * h * w
+        critic_flattened_size = 1 * h * w
 
-        # Actor and critic heads
         self.actor = nn.Sequential(
-            nn.Linear(flattened_size, 256),
-            nn.ReLU(),
+            nn.Conv2d(64, 2, kernel_size=1),
+            nn.Flatten(),
+            nn.Linear(actor_flattened_size, 256),
+            nn.ReLU(inplace=True),
             nn.Linear(256, action_dim),
         )
 
         self.critic = nn.Sequential(
-            nn.Linear(flattened_size, 256),
-            nn.ReLU(),
+            nn.Conv2d(64, 1, kernel_size=1),
+            nn.Flatten(),
+            nn.Linear(critic_flattened_size, 256),
+            nn.ReLU(inplace=True),
             nn.Linear(256, 1),
         )
 
@@ -53,14 +48,16 @@ class CnnActorCritic(nn.Module):
 
     def forward(self, obs, action_mask=None):
         features = self.shared_body(obs)
+
+        # Actor and critic paths
         logits = self.actor(features)
+        value = self.critic(features)
 
         if action_mask is not None:
             # ensure mask has correct dimensions
             if action_mask.dim() == 1 and logits.dim() == 2:
                 action_mask = action_mask.unsqueeze(0)
 
-            logits = logits.clone()
             logits[~action_mask] = -torch.inf
 
             all_invalid = action_mask.sum(dim=-1) == 0
@@ -68,5 +65,5 @@ class CnnActorCritic(nn.Module):
                 logits[all_invalid] = 0.0
 
         dist = Categorical(logits=logits)
-        value = self.critic(features)
+
         return dist, value

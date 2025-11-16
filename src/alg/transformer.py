@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import Categorical
+from .weight_init import initialize_actor_critic_weights
 
 
 class TransformerActorCritic(nn.Module):
@@ -84,34 +85,7 @@ class TransformerActorCritic(nn.Module):
             nn.Linear(256, 1),
         )
 
-        self._initialize_weights()
-
-    def _initialize_weights(self):
-        # Initialization for CLS token and positions (standard ViT)
-        nn.init.normal_(self.cls_token, std=0.02)
-        nn.init.normal_(self.pos_embed, std=0.02)
-
-        # Orthogonal initialization for the rest of the network (good for RL)
-        for module in self.modules():
-            if isinstance(module, nn.Conv2d):
-                nn.init.orthogonal_(module.weight, gain=nn.init.calculate_gain("relu"))
-                if module.bias is not None:
-                    nn.init.zeros_(module.bias)
-
-            elif isinstance(module, nn.Linear):
-                if module.out_features == 1:  # Critic output
-                    nn.init.orthogonal_(module.weight, gain=1.0)
-                elif module.out_features == self.action_dim:  # Actor output
-                    nn.init.orthogonal_(module.weight, gain=0.01)
-                else:  # Other layers
-                    nn.init.orthogonal_(module.weight, gain=nn.init.calculate_gain("relu"))
-
-                if module.bias is not None:
-                    nn.init.zeros_(module.bias)
-
-            elif isinstance(module, nn.LayerNorm):
-                nn.init.ones_(module.weight)
-                nn.init.zeros_(module.bias)
+        initialize_actor_critic_weights(self)
 
     def forward_features(self, x):
         """Extract features from observation, returns state representation (from CLS token)."""
