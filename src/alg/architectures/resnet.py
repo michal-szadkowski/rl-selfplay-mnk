@@ -98,7 +98,7 @@ class ResNetSActorCritic(BaseResNetActorCritic):
 
 class ResNetLActorCritic(BaseResNetActorCritic):
     def __init__(self, obs_shape, action_dim):
-        super().__init__(obs_shape, action_dim, channels=128, num_blocks=6)
+        super().__init__(obs_shape, action_dim, channels=128, num_blocks=8)
         self._architecture_name = "resnet_l"
         self._architecture_params = {
             "obs_shape": [int(x) for x in obs_shape],

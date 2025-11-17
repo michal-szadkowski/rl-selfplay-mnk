@@ -74,7 +74,7 @@ def train_mnk():
         "mnk": (9, 9, 5),
         # lr
         "learning_rate": 1e-4,
-        "lr_warmup_steps": 1_000_000,
+        "lr_warmup_steps": 500_000,
         # entropy
         "entropy_coef": 0.01,
         "entropy_coef_schedule": {
@@ -96,7 +96,7 @@ def train_mnk():
         # selfplay
         "opponent_pool": 5,
         #
-        "architecture_name": "resnet",
+        "architecture_name": "transformer_s",
     }
 
     device = "cuda" if torch.cuda.is_available() else "cpu"

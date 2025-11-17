@@ -1,23 +1,17 @@
-# WandB Sweep Configuration for MNK Game PPO Training (Local GTX 1050)
 program: src/vec_train_mnk.py
-method: bayes  # Options: grid, random, bayes
+method: bayes
 metric:
-  name: validation/vs_benchmark/win_rate
-  goal: maximize
+  name: validation/vs_benchmark/score_rate
 parameters:
   learning_rate:
     min: 0.00005
     max: 0.001
     distribution: log_uniform_values
-  gamma:
-    min: 0.95
-    max: 0.999
-    distribution: uniform
+  entropy_coef:
+    distribution: log_uniform_values
+    min: 1.0e-4 # 0.0001
+    max: 1.0e-2 # 0.01
   batch_size:
-    values: [64, 128, 256]
-  opponent_pool_size:
-    values: [3, 5, 8, 10]
-command:
-  - ${env}
-  - .venv/bin/python
-  - ${program}
+    values: [64, 256, 1024]
+  architecture_name:
+    values: ["transformer_s"]

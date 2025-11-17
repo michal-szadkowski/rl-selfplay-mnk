@@ -20,13 +20,11 @@ class BaseTransformerActorCritic(nn.Module):
             nhead=num_heads,
             dim_feedforward=embed_dim * 4,
             batch_first=True,
-            norm_first=True
+            norm_first=True,
             dropout=0.0,
         )
-        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
 
-        self.norm_in = nn.LayerNorm(embed_dim)
-        self.norm_out = nn.LayerNorm(embed_dim)
+        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
 
         self.policy_head = nn.Sequential(
             nn.Linear(embed_dim, 2),
@@ -44,20 +42,6 @@ class BaseTransformerActorCritic(nn.Module):
             nn.Linear(256, 1),
         )
 
-        # Value head: transforms (B, N, D) -> (B, 1)
-        # Analogous to 1x1 conv in CNN: processes each token independently
-        self.value_head = nn.Sequential(
-            nn.Linear(
-                embed_dim, 1
-            ),  # Reduce to single channel like Conv2d(channels, 1, 1)
-            nn.LayerNorm(1),  # Analogous to BatchNorm2d
-            nn.ReLU(),
-            nn.Flatten(),  # Flatten sequence: (B, N, 1) -> (B, N)
-            nn.Linear(1 * num_tokens, 256),  # Aggregate token information
-            nn.ReLU(),
-            nn.Linear(256, 1),  # Final value prediction
-        )
-
         initialize_actor_critic_weights(self)
 
     def forward_body(self, x):
@@ -65,7 +49,6 @@ class BaseTransformerActorCritic(nn.Module):
         # Convert (B, D, H, W) to (B, H*W, D) sequence format
         x = x.flatten(2).transpose(1, 2)
         x = x + self.pos_embed
-        x = self.norm_in(x)
         x = self.transformer(x)
         return x
 
@@ -92,9 +75,7 @@ class BaseTransformerActorCritic(nn.Module):
 
 class TransformerSActorCritic(BaseTransformerActorCritic):
     def __init__(self, obs_shape, action_dim):
-        super().__init__(
-            obs_shape, action_dim, embed_dim=128, num_layers=4, num_heads=4
-        )
+        super().__init__(obs_shape, action_dim, embed_dim=96, num_layers=3, num_heads=3)
         self._architecture_name = "transformer_s"
         self._architecture_params = {
             "obs_shape": [int(x) for x in obs_shape],
@@ -104,9 +85,7 @@ class TransformerSActorCritic(BaseTransformerActorCritic):
 
 class TransformerLActorCritic(BaseTransformerActorCritic):
     def __init__(self, obs_shape, action_dim):
-        super().__init__(
-            obs_shape, action_dim, embed_dim=256, num_layers=6, num_heads=8
-        )
+        super().__init__(obs_shape, action_dim, embed_dim=256, num_layers=6, num_heads=8)
         self._architecture_name = "transformer_l"
         self._architecture_params = {
             "obs_shape": [int(x) for x in obs_shape],
