@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from torch.distributions import Categorical
-from ..weight_init import initialize_actor_critic_weights
+from ..weight_init import initialize_weights_explicit
 
 
 class BaseCnnActorCritic(nn.Module):
@@ -23,7 +23,7 @@ class BaseCnnActorCritic(nn.Module):
                 )
             )
             layers.append(nn.BatchNorm2d(out_channels))
-            layers.append(nn.ReLU(inplace=True))
+            layers.append(nn.ReLU())
 
         self.shared_body = nn.Sequential(*layers)
 
@@ -34,20 +34,30 @@ class BaseCnnActorCritic(nn.Module):
         self.actor = nn.Sequential(
             nn.Conv2d(channels[-1], 2, kernel_size=1),
             nn.Flatten(),
+            nn.LayerNorm(actor_flattened_size),
+            nn.ReLU(),
             nn.Linear(actor_flattened_size, 256),
-            nn.ReLU(inplace=True),
+            nn.LayerNorm(256),
+            nn.ReLU(),
             nn.Linear(256, action_dim),
         )
 
         self.critic = nn.Sequential(
             nn.Conv2d(channels[-1], 1, kernel_size=1),
             nn.Flatten(),
+            nn.LayerNorm(critic_flattened_size),
+            nn.ReLU(),
             nn.Linear(critic_flattened_size, 256),
-            nn.ReLU(inplace=True),
+            nn.LayerNorm(256),
+            nn.ReLU(),
             nn.Linear(256, 1),
         )
 
-        initialize_actor_critic_weights(self)
+        initialize_weights_explicit(
+            modules_to_init=[self.shared_body],
+            actor_head=self.actor,
+            critic_head=self.critic,
+        )
 
     def forward(self, obs, action_mask=None):
         features = self.shared_body(obs)

@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from torch.distributions import Categorical
-from ..weight_init import initialize_actor_critic_weights
+from ..weight_init import initialize_weights_explicit
 
 
 class BaseTransformerActorCritic(nn.Module):
@@ -28,23 +28,36 @@ class BaseTransformerActorCritic(nn.Module):
 
         self.policy_head = nn.Sequential(
             nn.Conv1d(embed_dim, 2, kernel_size=1),
-            nn.ReLU(),
             nn.Flatten(),
+            nn.LayerNorm(2 * num_tokens),
+            nn.ReLU(),
             nn.Linear(2 * num_tokens, 256),
+            nn.LayerNorm(256),
             nn.ReLU(),
             nn.Linear(256, action_dim),
         )
 
         self.value_head = nn.Sequential(
             nn.Conv1d(embed_dim, 1, kernel_size=1),
-            nn.ReLU(),
             nn.Flatten(),
+            nn.LayerNorm(1 * num_tokens),
+            nn.ReLU(),
             nn.Linear(1 * num_tokens, 256),
+            nn.LayerNorm(256),
             nn.ReLU(),
             nn.Linear(256, 1),
         )
 
-        initialize_actor_critic_weights(self)
+        # Initialize parameters that won't be touched by the function
+        nn.init.normal_(self.pos_embed, std=0.02)
+
+        # Explicitly pass only what we want to initialize
+        # Note: self.transformer is NOT on this list
+        initialize_weights_explicit(
+            modules_to_init=[self.cell_embed],  # Only our input layer
+            actor_head=self.policy_head,
+            critic_head=self.value_head,
+        )
 
     def forward_body(self, x):
         x = self.cell_embed(x)
@@ -89,7 +102,9 @@ class TransformerSActorCritic(BaseTransformerActorCritic):
 
 class TransformerLActorCritic(BaseTransformerActorCritic):
     def __init__(self, obs_shape, action_dim):
-        super().__init__(obs_shape, action_dim, embed_dim=256, num_layers=6, num_heads=8)
+        super().__init__(
+            obs_shape, action_dim, embed_dim=256, num_layers=6, num_heads=8
+        )
         self._architecture_name = "transformer_l"
         self._architecture_params = {
             "obs_shape": [int(x) for x in obs_shape],

@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import Categorical
-from ..weight_init import initialize_actor_critic_weights
+from ..weight_init import initialize_weights_explicit
 
 
 class ResidualBlock(nn.Module):
@@ -15,10 +15,10 @@ class ResidualBlock(nn.Module):
 
     def forward(self, x):
         residual = x
-        out = F.relu(self.bn1(self.conv1(x)), inplace=True)
+        out = F.relu(self.bn1(self.conv1(x)))
         out = self.bn2(self.conv2(out))
         out += residual
-        return F.relu(out, inplace=True)
+        return F.relu(out)
 
 
 class BaseResNetActorCritic(nn.Module):
@@ -29,7 +29,7 @@ class BaseResNetActorCritic(nn.Module):
         self.conv_in = nn.Sequential(
             nn.Conv2d(obs_shape[0], channels, kernel_size=3, padding=1),
             nn.BatchNorm2d(channels),
-            nn.ReLU(inplace=True),
+            nn.ReLU(),
         )
 
         # Build res_blocks with configurable number of blocks
@@ -43,23 +43,31 @@ class BaseResNetActorCritic(nn.Module):
 
         self.policy_head = nn.Sequential(
             nn.Conv2d(channels, 2, kernel_size=1),
-            nn.ReLU(),
             nn.Flatten(),
+            nn.LayerNorm(actor_flattened_size),
+            nn.ReLU(),
             nn.Linear(actor_flattened_size, 256),
+            nn.LayerNorm(256),
             nn.ReLU(),
             nn.Linear(256, action_dim),
         )
 
         self.value_head = nn.Sequential(
             nn.Conv2d(channels, 1, kernel_size=1),
-            nn.ReLU(),
             nn.Flatten(),
+            nn.LayerNorm(critic_flattened_size),
+            nn.ReLU(),
             nn.Linear(critic_flattened_size, 256),
+            nn.LayerNorm(256),
             nn.ReLU(),
             nn.Linear(256, 1),
         )
 
-        initialize_actor_critic_weights(self)
+        initialize_weights_explicit(
+            modules_to_init=[self.conv_in, self.res_blocks],
+            actor_head=self.policy_head,
+            critic_head=self.value_head,
+        )
 
     def forward_body(self, x):
         x = self.conv_in(x)

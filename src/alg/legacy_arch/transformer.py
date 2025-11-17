@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import Categorical
-from ..weight_init import initialize_actor_critic_weights
+from .weight_init import initialize_transformer_weights
 
 
 class TransformerActorCritic(nn.Module):
@@ -85,7 +85,7 @@ class TransformerActorCritic(nn.Module):
             nn.Linear(256, 1),
         )
 
-        initialize_actor_critic_weights(self)
+        initialize_transformer_weights(self)
 
     def forward_features(self, x):
         """Extract features from observation, returns state representation (from CLS token)."""
