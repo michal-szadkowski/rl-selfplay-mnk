@@ -27,14 +27,16 @@ class BaseTransformerActorCritic(nn.Module):
         self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
 
         self.policy_head = nn.Sequential(
-            nn.Linear(embed_dim, 2),
+            nn.Conv1d(embed_dim, 2, kernel_size=1),
             nn.ReLU(),
             nn.Flatten(),
-            nn.Linear(2 * num_tokens, action_dim),
+            nn.Linear(2 * num_tokens, 256),
+            nn.ReLU(),
+            nn.Linear(256, action_dim),
         )
 
         self.value_head = nn.Sequential(
-            nn.Linear(embed_dim, 1),
+            nn.Conv1d(embed_dim, 1, kernel_size=1),
             nn.ReLU(),
             nn.Flatten(),
             nn.Linear(1 * num_tokens, 256),
@@ -54,9 +56,11 @@ class BaseTransformerActorCritic(nn.Module):
 
     def forward(self, obs, action_mask=None):
         features = self.forward_body(obs)
+        # Convert (B, seq_len, embed_dim) to (B, embed_dim, seq_len) for Conv1d
+        features_conv = features.transpose(1, 2)
 
-        logits = self.policy_head(features)
-        value = self.value_head(features)
+        logits = self.policy_head(features_conv)
+        value = self.value_head(features_conv)
 
         if action_mask is not None:
             if action_mask.dim() == 1 and logits.dim() == 2:
