@@ -34,7 +34,8 @@ def create_agent(config, obs_shape, action_dim, device):
     )
 
     optimizer = torch.optim.AdamW(
-        network.parameters(), lr=config.learning_rate, weight_decay=1e-4
+        network.parameters(),
+        lr=config.learning_rate,
     )
 
     lr_scheduler = create_lr_scheduler(
@@ -96,7 +97,7 @@ def train_mnk():
         # selfplay
         "opponent_pool": 5,
         #
-        "architecture_name": "transformer_s",
+        "architecture_name": "cnn_s",
     }
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -122,7 +123,6 @@ def train_mnk():
         current_env_steps = 0
         for i in range(total_iterations):
             try:
-
                 # Select random opponent from pool
                 opponent = opponent_pool.get_random_opponent()
                 train_env.unwrapped.set_opponent(opponent)
@@ -199,7 +199,10 @@ def log_training_metrics(
         f"grad_norm: {metrics.grad_norm:.3f} | "
         f"clip: {metrics.clip_fraction:.3f} | "
         f"explained_var: {metrics.explained_variance:.3f} | "
-        f"approx_kl: {metrics.approx_kl:.4f}"
+        f"approx_kl: {metrics.approx_kl:.4f} | "
+        f"fps: {metrics.fps:.1f} | "
+        f"rollout_time: {metrics.rollout_time:.3f}s | "
+        f"learn_time: {metrics.learn_time:.3f}s"
     )
 
     run.log(

@@ -3,6 +3,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 from dataclasses import dataclass
 import numpy as np
+import time
 
 from .rollout_buffer import RolloutBuffer
 
@@ -20,6 +21,9 @@ class TrainingMetrics:
     clip_fraction: float
     explained_variance: float
     approx_kl: float
+    fps: float
+    rollout_time: float
+    learn_time: float
 
 
 class PPOAgent:
@@ -97,6 +101,7 @@ class PPOAgent:
         Returns:
             TrainingMetrics: Object containing all training metrics
         """
+        rollout_start_time = time.time()
         obs, _ = vec_env.reset()
         ep_rewards = []
         ep_lengths = []
@@ -136,6 +141,11 @@ class PPOAgent:
                         ep_rewards.append(r)
                         ep_lengths.append(l)
 
+        rollout_end_time = time.time()
+        rollout_time = rollout_end_time - rollout_start_time
+        total_steps = self.buffer.n_steps * self.num_envs
+        fps = total_steps / rollout_time if rollout_time > 0 else 0.0
+
         # 2. Compute advantages and returns for the full rollout
         with torch.no_grad():
             # Get the value of the last observation in each environment
@@ -147,6 +157,7 @@ class PPOAgent:
         self.buffer.compute_advantages_and_returns(last_values, self.gamma, self.gae_lambda)
 
         # 3. Update networks using the full rollout
+        learn_start_time = time.time()
         (
             actor_loss,
             critic_loss,
@@ -156,6 +167,8 @@ class PPOAgent:
             explained_var,
             approx_kl,
         ) = self.update_networks()
+        learn_end_time = time.time()
+        learn_time = learn_end_time - learn_start_time
 
         # 4. Step the learning rate scheduler and entropy scheduler
         if self.lr_scheduler:
@@ -179,6 +192,9 @@ class PPOAgent:
                 clip_fraction=clip_fraction,
                 explained_variance=explained_var,
                 approx_kl=approx_kl,
+                fps=fps,
+                rollout_time=rollout_time,
+                learn_time=learn_time,
             )
         return TrainingMetrics(
             mean_reward=0.0,
@@ -190,6 +206,9 @@ class PPOAgent:
             clip_fraction=clip_fraction,
             explained_variance=explained_var,
             approx_kl=approx_kl,
+            fps=fps,
+            rollout_time=rollout_time,
+            learn_time=learn_time,
         )
 
     def update_networks(self):
@@ -202,8 +221,8 @@ class PPOAgent:
         entropy_losses = []
         grad_norms = []
         clip_fractions = []
-        explained_vars = [] 
-        approx_kls = [] 
+        explained_vars = []
+        approx_kls = []
 
         # Perform multiple PPO epochs on the same rollout data
         for epoch in range(self.ppo_epochs):
