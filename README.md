@@ -22,7 +22,7 @@ This project implements a reinforcement learning framework for MNK games, includ
 - **UV package manager** for dependency management
 - **Custom PyTorch implementation** (no external RL libraries)
 - **W&B** for experiment tracking and visualization
-- **PettingZoo** for environment interface
+- **GPU-accelerated environments** with convolution-based win detection
 
 ## Usage
 
@@ -59,9 +59,10 @@ uv run src/play.py --p1 model.pt --p2 random --m 7 --n 7 --k 4
 
 ## Project Structure
 
-- `src/env/mnk_game_env.py` - PettingZoo AEC environment
+- `src/env/torch_vector_mnk_env.py` - GPU-accelerated vectorized environment
+- `src/selfplay/torch_self_play_wrapper.py` - GPU self-play wrapper
 - `src/alg/ppo.py` - Custom PPO implementation
 - `src/selfplay/opponent_pool.py` - Dynamic opponent management
 - `src/vec_train_mnk.py` - Main training loop
 - `src/play.py` - Human vs AI interface
-- `src/validation.py` - Validation utilities
+- `src/validation.py` - GPU-accelerated validation utilities

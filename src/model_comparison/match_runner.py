@@ -1,95 +1,115 @@
 import gc
 import pandas as pd
-import numpy as np
+import torch
 from typing import List, Tuple
 from dataclasses import dataclass
 from tqdm import tqdm
 
-from env.mnk_game_env import create_mnk_env
-from selfplay.policy import BatchNNPolicy
-from selfplay.vector_mnk_self_play import VectorMnkSelfPlayWrapper
+from env.torch_vector_mnk_env import TorchVectorMnkEnv
+from env.constants import PLAYER_WHITE
+from selfplay.policy import Policy, NNPolicy
 from .model_loader import ModelInfo
 
 
 @dataclass
 class GameConfig:
-    """Configuration for game environment."""
 
-    m: int = 9  # Board width
-    n: int = 9  # Board height
-    k: int = 5  # Win condition
-    device: str = "cpu"
+    m: int = 9
+    n: int = 9
+    k: int = 5
+    device: str = "cuda" if torch.cuda.is_available() else "cpu"
 
 
 class MatchRunner:
-    """Runs individual matches between models."""
-
     def __init__(self, config: GameConfig):
         self.config = config
-        self.env = create_mnk_env(m=config.m, n=config.n, k=config.k)
 
-    def _cleanup(
-        self,
-        p1_policy: BatchNNPolicy,
-        p2_policy: BatchNNPolicy,
-        model1: ModelInfo,
-        model2: ModelInfo,
-    ) -> None:
-        """Clean up resources."""
-        del p1_policy, p2_policy
-        model1.unload_model()
-        model2.unload_model()
-
-        if self.config.device != "cpu":
-            import torch
-
-            torch.cuda.empty_cache()
-        gc.collect()
-
-    def _play_vectorized_batch(
-        self, model1: ModelInfo, model2: ModelInfo, games_per_pair: int
+    def run_tournament_batched(
+        self, models: List[ModelInfo], games_per_pair: int, batch_size: int = 8
     ) -> pd.DataFrame:
-        """Play games between two models using vectorized environment."""
+        all_results = []
+        if len(models) < 2:
+            return pd.DataFrame()
 
-        p1_model = model1.load_model(self.config.device)
-        p2_model = model2.load_model(self.config.device)
-        p1_policy = BatchNNPolicy(p1_model, device=self.config.device)
-        p2_policy = BatchNNPolicy(p2_model, device=self.config.device)
+        total_matches = len(models) * (len(models) - 1) // 2
+        pbar = tqdm(total=total_matches, desc="Tournament matches (batched)")
 
-        result = self._play_match_with_policies(
-            p1_policy, p2_policy, model1, model2, games_per_pair
-        )
+        for row_start in range(0, len(models), batch_size):
+            row_batch = models[row_start : row_start + batch_size]
 
-        self._cleanup(p1_policy, p2_policy, model1, model2)
+            loaded_row = []
+            for model in row_batch:
+                model_data = model.load_model(self.config.device)
+                policy = NNPolicy(model_data)
+                loaded_row.append((model, policy))
 
-        return result
+            for col_start in range(row_start, len(models), batch_size):
+                col_batch = models[col_start : col_start + batch_size]
+
+                if col_start == row_start:
+                    loaded_col = loaded_row
+                else:
+                    loaded_col = []
+                    for model in col_batch:
+                        model_data = model.load_model(self.config.device)
+                        policy = NNPolicy(model_data)
+                        loaded_col.append((model, policy))
+
+                for i, (model1, policy1) in enumerate(loaded_row):
+                    start_j = i + 1 if col_start == row_start else 0
+
+                    for model2, policy2 in loaded_col[start_j:]:
+                        result = self._play_match_with_policies(
+                            policy1, policy2, model1, model2, games_per_pair
+                        )
+                        all_results.append(result)
+
+                        p1_wins = result["player1_wins"].iloc[0]
+                        p2_wins = result["player2_wins"].iloc[0]
+                        draws = result["draws"].iloc[0]
+                        pbar.set_postfix(
+                            {
+                                "match": f"{model1.unique_id} vs {model2.unique_id}",
+                                "res": f"{p1_wins}-{p2_wins}-{draws}",
+                            }
+                        )
+                        pbar.update(1)
+
+                if col_start != row_start:
+                    self._cleanup_batch_gpu(loaded_col, hard=False)
+
+            self._cleanup_batch_gpu(loaded_row, hard=True)
+
+        pbar.close()
+        return pd.concat(all_results, ignore_index=True) if all_results else pd.DataFrame()
 
     def _play_match_with_policies(
         self,
-        p1_policy: BatchNNPolicy,
-        p2_policy: BatchNNPolicy,
+        p1_policy: Policy,
+        p2_policy: Policy,
         model1: ModelInfo,
         model2: ModelInfo,
         games_per_pair: int,
     ) -> pd.DataFrame:
-        """Play match with already loaded policies."""
 
         games_as_first = games_per_pair // 2
         games_as_second = games_per_pair - games_as_first
 
-        wins_first, losses_first, draws_first = self._play_batch_games(
-            p1_policy, p2_policy, games_as_first, "black"
-        )
-        wins_second, losses_second, draws_second = self._play_batch_games(
-            p1_policy, p2_policy, games_as_second, "white"
+        w1, l1, d1 = self._play_batch_games(
+            p1_policy, p2_policy, games_as_first, p1_is_black=True
         )
 
-        player1_wins = wins_first + wins_second
-        player2_wins = losses_first + losses_second
-        draws = draws_first + draws_second
+        w2, l2, d2 = self._play_batch_games(
+            p1_policy, p2_policy, games_as_second, p1_is_black=False
+        )
+
+        player1_wins = w1 + w2
+        player2_wins = l1 + l2
+        draws = d1 + d2
         total_games = games_per_pair
-        player1_score = (player1_wins + 0.5 * draws) / total_games
-        player2_score = (player2_wins + 0.5 * draws) / total_games
+
+        player1_score = (player1_wins + 0.5 * draws) / max(1, total_games)
+        player2_score = (player2_wins + 0.5 * draws) / max(1, total_games)
 
         return self._create_result_df(
             model1,
@@ -103,42 +123,99 @@ class MatchRunner:
         )
 
     def _play_batch_games(
-        self, p1_policy: BatchNNPolicy, p2_policy: BatchNNPolicy, n_games: int, p1_color: str
+        self, p1_policy: Policy, p2_policy: Policy, n_games: int, p1_is_black: bool
     ) -> tuple[int, int, int]:
-        """Play batch of games and return (wins, losses, draws) for p1."""
         if n_games == 0:
             return 0, 0, 0
 
-        # Create environment
-        env = VectorMnkSelfPlayWrapper(
-            m=self.config.m, n=self.config.n, k=self.config.k, n_envs=n_games
+        # Create GPU environment
+        env = TorchVectorMnkEnv(
+            m=self.config.m,
+            n=self.config.n,
+            k=self.config.k,
+            num_envs=n_games,
+            device=self.config.device,
         )
-        env.players = np.array([p1_color] * n_games)
-        env.set_opponent(p2_policy)
 
-        # Play games
-        obs, _ = env.reset()
-        completed = np.zeros(n_games, dtype=bool)
-        wins = losses = draws = 0
+        obs = env.reset()
+        dones = torch.zeros(n_games, dtype=torch.bool, device=self.config.device)
 
-        while not np.all(completed):
-            actions = p1_policy.act(obs)
-            obs, rewards, terminations, truncations, _ = env.step(actions)
+        wins = 0
+        losses = 0
+        draws = 0
 
-            # Count newly completed games
-            just_completed = (terminations | truncations) & ~completed
-            for i in np.where(just_completed)[0]:
-                if rewards[i] > 0:
-                    wins += 1
-                elif rewards[i] < 0:
-                    losses += 1
-                else:
-                    draws += 1
+        agent_side_val = 0 if p1_is_black else 1
 
-            completed |= terminations | truncations
+        while not dones.all():
+            current_player = env.current_player  # (num_envs,)
+
+            active_games = ~dones
+
+            is_p1_turn = (current_player == agent_side_val) & active_games
+            is_p2_turn = (current_player != agent_side_val) & active_games
+
+            if not is_p1_turn.any() and not is_p2_turn.any():
+                break
+
+            actions = torch.full((n_games,), 0, dtype=torch.long, device=self.config.device)
+
+            if is_p1_turn.any():
+                p1_obs_input = {
+                    "observation": obs["observation"][is_p1_turn].clone(),
+                    "action_mask": obs["action_mask"][is_p1_turn],
+                }
+
+                if agent_side_val == PLAYER_WHITE:
+                    p1_obs_input["observation"] = torch.flip(
+                        p1_obs_input["observation"], dims=(1,)
+                    )
+
+                with torch.no_grad():
+                    act = p1_policy.act(p1_obs_input, deterministic=False)
+
+                actions[is_p1_turn] = act
+
+            if is_p2_turn.any():
+                p2_obs_input = {
+                    "observation": obs["observation"][is_p2_turn].clone(),
+                    "action_mask": obs["action_mask"][is_p2_turn],
+                }
+
+                opponent_side = 1 - agent_side_val
+                if opponent_side == PLAYER_WHITE:
+                    p2_obs_input["observation"] = torch.flip(
+                        p2_obs_input["observation"], dims=(1,)
+                    )
+
+                with torch.no_grad():
+                    act = p2_policy.act(p2_obs_input, deterministic=False)
+
+                actions[is_p2_turn] = act
+
+            moving_indices = torch.nonzero(is_p1_turn | is_p2_turn).squeeze(1)
+            active_actions = actions[moving_indices]
+
+            obs, rewards, step_dones = env.step_subset(active_actions, moving_indices)
+
+            just_finished_mask = step_dones & (~dones)
+
+            if just_finished_mask.any():
+                finished_indices = torch.nonzero(just_finished_mask).squeeze(1)
+
+                winners_mask = (rewards == 1.0) & just_finished_mask
+                draws_mask = (rewards == 0.0) & just_finished_mask
+
+                p1_wins_mask = winners_mask & is_p1_turn
+                p1_losses_mask = winners_mask & (~is_p1_turn)
+
+                wins += p1_wins_mask.sum().item()
+                losses += p1_losses_mask.sum().item()
+                draws += draws_mask.sum().item()
+
+                dones[just_finished_mask] = True
 
         del env
-        return wins, losses, draws
+        return int(wins), int(losses), int(draws)
 
     def _create_result_df(
         self,
@@ -171,101 +248,14 @@ class MatchRunner:
             ]
         )
 
-    def run_tournament_batched(
-        self, models: List[ModelInfo], games_per_pair: int, batch_size: int = 8
-    ) -> pd.DataFrame:
-        """Run tournament using batch loading."""
-        all_results = []
-        total_matches = len(models) * (len(models) - 1) // 2
-
-        pbar = tqdm(total=total_matches, desc="Tournament matches (batched)")
-
-        for row_start in range(0, len(models), batch_size):
-            row_batch = models[row_start : row_start + batch_size]
-
-            # Load row batch
-            loaded_row = []
-            for model in row_batch:
-                model_data = model.load_model()
-                policy = BatchNNPolicy(model_data, device=self.config.device)
-                loaded_row.append((model, policy))
-
-            for col_start in range(row_start, len(models), batch_size):
-                col_batch = models[col_start : col_start + batch_size]
-
-                # Load column batch
-                if col_start == row_start:
-                    loaded_col = loaded_row  # Same batch
-                else:
-                    loaded_col = []
-                    for model in col_batch:
-                        model_data = model.load_model()
-                        policy = BatchNNPolicy(model_data, device=self.config.device)
-                        loaded_col.append((model, policy))
-
-                # Play all matches: row_batch × col_batch
-                for i, (model1, policy1) in enumerate(loaded_row):
-                    start_j = i + 1 if col_start == row_start else 0  # Skip diagonal
-                    for model2, policy2 in loaded_col[start_j:]:
-                        result = self._play_match_with_policies(
-                            policy1, policy2, model1, model2, games_per_pair
-                        )
-                        all_results.append(result)
-
-                        # Update progress
-                        p1_wins = result["player1_wins"].iloc[0]
-                        p2_wins = result["player2_wins"].iloc[0]
-                        draws = result["draws"].iloc[0]
-                        pbar.set_postfix(
-                            {
-                                "match": f"{model1.unique_id} vs {model2.unique_id}",
-                                "result": f"{p1_wins}-{p2_wins}-{draws}",
-                            }
-                        )
-                        pbar.update(1)
-
-                # Cleanup column batch if different
-                if col_start != row_start:
-                    self._cleanup_batch_gpu(loaded_col, hard=False)
-
-            # Cleanup row batch
-            self._cleanup_batch_gpu(loaded_row, hard=True)
-
-        pbar.close()
-        return pd.concat(all_results, ignore_index=True) if all_results else pd.DataFrame()
-
-    def _cleanup_batch_gpu(self, loaded_batch: List[Tuple[ModelInfo, BatchNNPolicy]], hard: bool = False) -> None:
+    def _cleanup_batch_gpu(
+        self, loaded_batch: List[Tuple[ModelInfo, Policy]], hard: bool = False
+    ) -> None:
         """Clean up batch of GPU models."""
         for model, policy in loaded_batch:
             model.unload_model(hard=hard)
             del policy
 
         gc.collect()
-
-    def _run_tournament_sequential(
-        self, models: List[ModelInfo], games_per_pair: int
-    ) -> pd.DataFrame:
-        """Run tournament with original sequential approach."""
-        from itertools import combinations
-
-        model_pairs = list(combinations(models, 2))
-        all_results = []
-
-        pbar = tqdm(model_pairs, desc="Tournament matches (sequential)")
-        for model1, model2 in pbar:
-            pbar.set_postfix({"match": f"{model1.unique_id} vs {model2.unique_id}"})
-            match_result = self._play_vectorized_batch(model1, model2, games_per_pair)
-            all_results.append(match_result)
-
-            # Update postfix with result
-            p1_wins = match_result["player1_wins"].iloc[0]
-            p2_wins = match_result["player2_wins"].iloc[0]
-            draws = match_result["draws"].iloc[0]
-            pbar.set_postfix(
-                {
-                    "match": f"{model1.unique_id} vs {model2.unique_id}",
-                    "result": f"{p1_wins}-{p2_wins}-{draws}",
-                }
-            )
-
-        return pd.concat(all_results, ignore_index=True) if all_results else pd.DataFrame()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()

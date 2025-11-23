@@ -1,28 +1,33 @@
 from copy import deepcopy
+import random
 
 import torch
 import wandb
-from gymnasium.wrappers.vector import RecordEpisodeStatistics
 
 from alg.ppo import PPOAgent, TrainingMetrics
 from alg.entropy_scheduler import EntropyScheduler
 from alg.lr_scheduler import create_lr_scheduler
 from selfplay.opponent_pool import OpponentPool
-from selfplay.policy import NNPolicy, BatchNNPolicy
-from selfplay.vector_mnk_self_play import VectorMnkSelfPlayWrapper
-from validation import run_validation
+from selfplay.policy import NNPolicy
+from selfplay.torch_self_play_wrapper import TorchSelfPlayWrapper
+from env.torch_vector_mnk_env import TorchVectorMnkEnv
+from selfplay.validation import validate_gpu
 from model_export import ModelExporter, create_model_from_architecture
 
 
 def setup_environment(config):
-    """Initialize vectorized self-play environment and return env, obs_shape, action_dim."""
-    train_env = VectorMnkSelfPlayWrapper(
-        m=config.mnk[0], n=config.mnk[1], k=config.mnk[2], n_envs=config.num_envs
+    base_env = TorchVectorMnkEnv(
+        m=config.mnk[0],
+        n=config.mnk[1],
+        k=config.mnk[2],
+        num_envs=config.num_envs,
+        device="cuda" if torch.cuda.is_available() else "cpu",
     )
-    train_env = RecordEpisodeStatistics(train_env)
 
-    obs_shape = train_env.single_observation_space["observation"].shape
-    action_dim = train_env.single_action_space.n
+    train_env = TorchSelfPlayWrapper(base_env)
+
+    obs_shape = (2, config.mnk[0], config.mnk[1])  # (channels, height, width)
+    action_dim = config.mnk[0] * config.mnk[1]
 
     return train_env, obs_shape, action_dim
 
@@ -32,6 +37,7 @@ def create_agent(config, obs_shape, action_dim, device):
     network = create_model_from_architecture(
         config.architecture_name, obs_shape=obs_shape, action_dim=action_dim
     )
+    network = network.to(device)
 
     optimizer = torch.optim.AdamW(
         network.parameters(),
@@ -74,36 +80,36 @@ def train_mnk():
     default_config = {
         "mnk": (9, 9, 5),
         # lr
-        "learning_rate": 1e-4,
-        "lr_warmup_steps": 500_000,
+        "learning_rate": 3e-4,
+        "lr_warmup_steps": 200_000,
         # entropy
-        "entropy_coef": 0.01,
+        "entropy_coef": 0.02,
         "entropy_coef_schedule": {
             "type": "linear",
-            "params": {"final_coef": 0.001, "total_steps": 40_000_000},
+            "params": {"final_coef": 0.001, "total_steps": 30_000_000},
         },
         # ppo
-        "gamma": 0.98,
+        "gamma": 0.99,
         "clip_range": 0.2,
-        "batch_size": 1024,
+        "batch_size": 4096,
         "n_steps": 256,
         "ppo_epochs": 4,
         "total_environment_steps": 50_000_000,
-        "num_envs": 32,
+        "num_envs": 512,
         # validation
-        "benchmark_update_threshold_score": 0.65,
-        "validation_interval": 25,
-        "validation_episodes": 100,
+        "benchmark_update_threshold_score": 0.60,
+        "validation_interval": 5,
+        "validation_episodes": 256,
         # selfplay
-        "opponent_pool": 5,
+        "opponent_pool": 10,
         #
-        "architecture_name": "cnn_s",
+        "architecture_name": "resnet_s",
     }
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Using device: {device}")
 
-    with wandb.init(config=default_config, project="mnk_995") as run:
+    with wandb.init(config=default_config, project="mnk_995_gpu") as run:
         model_exporter = ModelExporter(run.name or None)
 
         train_env, obs_shape, action_dim = setup_environment(run.config)
@@ -114,58 +120,62 @@ def train_mnk():
         benchmark_policy = NNPolicy(deepcopy(agent.network))
 
         opponent_pool = OpponentPool(max_size=run.config.opponent_pool)
-        opponent_pool.add_opponent(BatchNNPolicy(deepcopy(agent.network)))
+        opponent_pool.add_opponent(NNPolicy(deepcopy(agent.network)))
 
         steps_per_iteration = run.config.num_envs * run.config.n_steps
         total_iterations = run.config.total_environment_steps // steps_per_iteration
-        print(f"Starting training for {total_iterations}")
+        print(f"Starting training for {total_iterations} iterations")
 
         current_env_steps = 0
         for i in range(total_iterations):
             try:
-                # Select random opponent from pool
-                opponent = opponent_pool.get_random_opponent()
-                train_env.unwrapped.set_opponent(opponent)
+                if random.random() < 0.2:
+                    opponent = opponent_pool.get_random_opponent()
+                else:
+                    opponent = NNPolicy(deepcopy(agent.network))
+                train_env.set_opponent(opponent)
 
-                # Train and get metrics
                 metrics = agent.learn(train_env)
+
+                current_env_steps = (i + 1) * steps_per_iteration
 
                 log_training_metrics(
                     run, metrics, i, current_env_steps, agent.entropy_coef, agent
                 )
 
-                if i % 10 == 0 or metrics.mean_reward > 0.3:
-                    opponent_pool.add_opponent(BatchNNPolicy(deepcopy(agent.network)))
+                if i % 20 == 0 and metrics.mean_reward:
+                    opponent_pool.add_opponent(NNPolicy(deepcopy(agent.network)))
 
-                # Validate agent performance periodically
                 if i > 0 and i % run.config.validation_interval == 0:
                     print(
                         f"--- Running validation at step {i} ({current_env_steps:,} env steps) ---"
                     )
-                    validation_res = run_validation(
-                        run.config.mnk,
-                        run.config.validation_episodes,
-                        agent,
-                        benchmark_policy,
-                        device,
-                        seed=i,
+                    current_policy = NNPolicy(agent.network)
+
+                    validation_res = validate_gpu(
+                        agent_policy=current_policy,
+                        opponent_policy=benchmark_policy,
+                        mnk_config=run.config.mnk,
+                        n_episodes=run.config.validation_episodes,
+                        device=device,
                     )
+
+                    agent.network.train()
+
                     run.log(validation_res, step=current_env_steps)
 
                     score_rate = validation_res["validation/vs_benchmark/score_rate"]
+                    print(f"Validation Score Rate: {score_rate:.2f}")
 
                     if score_rate > run.config.benchmark_update_threshold_score:
-                        print(
-                            f"--- New benchmark agent at step {i} (Score Rate: {score_rate:.2f})! ---"
-                        )
+                        print(f"--- New benchmark agent at step {i}! ---")
                         benchmark_policy = NNPolicy(deepcopy(agent.network))
 
-                        # Export model that broke benchmark
                         model_exporter.export_model(
                             agent.network, i, is_benchmark_breaker=True
                         )
 
-                        run.log({"validation/new_benchmark_step": i}, step=current_env_steps)
+                        run.log({"validation/new_benchmark_step": 1}, step=current_env_steps)
                     else:
                         model_exporter.export_model(
                             agent.network, i, is_benchmark_breaker=False
@@ -174,8 +184,6 @@ def train_mnk():
             except Exception as e:
                 handle_training_error(run, e, i, current_env_steps)
                 continue
-
-            current_env_steps = (i + 1) * steps_per_iteration
 
 
 def log_training_metrics(
@@ -186,7 +194,6 @@ def log_training_metrics(
     entropy_coef,
     agent,
 ):
-    """Log training metrics."""
     current_lr = agent.optimizer.param_groups[0]["lr"]
 
     print(
@@ -224,7 +231,6 @@ def log_training_metrics(
 
 
 def handle_training_error(run, error, iteration, env_steps):
-    """Handle training exceptions and log to W&B."""
     error_msg = f"Error in iteration {iteration}: {str(error)}"
     print(error_msg)
     import traceback

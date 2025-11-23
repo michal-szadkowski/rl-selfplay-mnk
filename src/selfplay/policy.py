@@ -1,122 +1,57 @@
-import numpy as np
 from abc import ABC, abstractmethod
-
+from typing import Dict
 import torch
+import torch.nn as nn
 
 
 class Policy(ABC):
     @abstractmethod
-    def act(self, obs):
+    def act(self, obs: Dict[str, torch.Tensor], deterministic: bool = False) -> torch.Tensor:
         pass
 
 
 class RandomPolicy(Policy):
-    def __init__(self, action_space):
-        self.action_space = action_space
+    def __init__(self, action_dim: int):
+        self.action_dim = action_dim
 
-    def act(self, obs):
-        if isinstance(obs, dict):
-            action_mask = obs["action_mask"].astype(np.int8)
+    def act(self, obs: Dict[str, torch.Tensor], deterministic: bool = False) -> torch.Tensor:
+        mask = obs["action_mask"]
+        probs = mask.float()
+
+        row_sums = probs.sum(dim=1, keepdim=True)
+        zero_rows = row_sums == 0
+        if zero_rows.any():
+            probs = probs + zero_rows.float() * 1e-8
+
+        if deterministic:
+            return torch.argmax(probs, dim=1)
         else:
-            action_mask = None
-
-        action = self.action_space.sample(mask=action_mask)
-        return action
+            return torch.multinomial(probs, num_samples=1).squeeze(1)
 
 
 class NNPolicy(Policy):
-    def __init__(self, model, device="cpu"):
+    def __init__(self, model: nn.Module):
         self.model = model
         self.model.eval()
-        self.model.to(device)
-        self.device = device
 
-    def act(self, obs):
+    def act(self, obs: Dict[str, torch.Tensor], deterministic: bool = False) -> torch.Tensor:
+        observation = obs["observation"]
+        action_mask = obs["action_mask"]
 
-        if isinstance(obs, dict):
-            observation = obs["observation"]
-            action_mask = torch.as_tensor(obs["action_mask"], dtype=torch.bool, device=self.device)
-        else:
-            observation = obs
-            action_mask = None
+        if observation.dim() == 3:
+            observation = observation.unsqueeze(0)
+        if action_mask.dim() == 1:
+            action_mask = action_mask.unsqueeze(0)
 
         with torch.no_grad():
-            dist, _ = self.model(
-                torch.as_tensor(observation, dtype=torch.float32, device=self.device).unsqueeze(0),
-                action_mask,
-            )
-        action = dist.sample()
-        return action.item()
+            dist, _ = self.model(observation, action_mask)
 
+            if deterministic:
+                if hasattr(dist, "mode"):
+                    action = dist.mode
+                else:
+                    action = torch.argmax(dist.logits, dim=1)
+            else:
+                action = dist.sample()
 
-class BatchRandomPolicy(Policy):
-    def __init__(self, action_space):
-        self.action_space = action_space
-
-    def act(self, obs):
-        actions = []
-        for o in obs:
-            act = self.action_space.sample(mask=o['action_mask'].astype(np.int8))
-            actions.append(act)
-        return actions
-
-
-class VectorNNPolicy(Policy):
-    def __init__(self, model, device="cpu"):
-        self.model = model
-        self.model.eval()
-        self.model.to(device)
-        self.device = device
-
-    def act(self, obs):
-        observation_batch = torch.stack([
-            torch.as_tensor(o["observation"], device=self.device, dtype=torch.float32)
-            for o in obs
-        ])
-        mask_batch = torch.stack([
-            torch.as_tensor(o["action_mask"], device=self.device, dtype=torch.bool)
-            for o in obs
-        ])
-
-        with torch.no_grad():
-            dist, _ = self.model(observation_batch, mask_batch)
-
-        action = dist.sample()
-        return action.cpu().numpy()
-
-
-class BatchNNPolicy(Policy):
-    """Policy that accepts a single dictionary with batched observations instead of a list of dictionaries."""
-    
-    def __init__(self, model, device="cpu"):
-        self.model = model
-        self.model.eval()
-        self.model.to(device)
-        self.device = device
-
-    def act(self, obs):
-        """
-        Act on a single dictionary with batched observations.
-        
-        Args:
-            obs: Dictionary with batched observations and action masks
-                 {
-                     "observation": np.ndarray of shape (batch_size, channels, height, width),
-                     "action_mask": np.ndarray of shape (batch_size, action_dim)
-                 }
-        
-        Returns:
-            np.ndarray: Actions for each environment in the batch
-        """
-        if isinstance(obs, dict):
-            # Convert to tensors directly (already batched)
-            observation_batch = torch.as_tensor(obs["observation"], device=self.device, dtype=torch.float32)
-            mask_batch = torch.as_tensor(obs["action_mask"], device=self.device, dtype=torch.bool)
-        else:
-            raise ValueError("BatchNNPolicy expects a dictionary with batched observations")
-        
-        with torch.no_grad():
-            dist, _ = self.model(observation_batch, mask_batch)
-        
-        action = dist.sample()
-        return action.cpu().numpy()
+        return action

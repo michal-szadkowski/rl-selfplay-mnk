@@ -1,9 +1,8 @@
 import torch
-from torch.utils.data import DataLoader, TensorDataset
 
 
 class RolloutBuffer:
-    def __init__(self, n_steps, num_envs, obs_shape, action_dim, device='cpu'):
+    def __init__(self, n_steps, num_envs, obs_shape, action_dim, device="cpu"):
         self.n_steps = n_steps
         self.num_envs = num_envs
         self.obs_shape = obs_shape
@@ -12,48 +11,58 @@ class RolloutBuffer:
         self.reset()
 
     def reset(self):
-        """Reset the buffer."""
-        self.observations = torch.zeros((self.n_steps, self.num_envs, *self.obs_shape), dtype=torch.float32, device=self.device)
-        self.actions = torch.zeros((self.n_steps, self.num_envs), dtype=torch.long, device=self.device)
-        self.log_probs = torch.zeros((self.n_steps, self.num_envs), dtype=torch.float32, device=self.device)
-        self.rewards = torch.zeros((self.n_steps, self.num_envs), dtype=torch.float32, device=self.device)
-        self.values = torch.zeros((self.n_steps, self.num_envs), dtype=torch.float32, device=self.device)
-        self.returns = torch.zeros((self.n_steps, self.num_envs), dtype=torch.float32, device=self.device)
-        self.advantages = torch.zeros((self.n_steps, self.num_envs), dtype=torch.float32, device=self.device)
-        self.dones = torch.zeros((self.n_steps, self.num_envs), dtype=torch.bool, device=self.device)
-        self.action_masks = torch.zeros((self.n_steps, self.num_envs, self.action_dim), dtype=torch.bool, device=self.device)
+        self.observations = torch.zeros(
+            (self.n_steps, self.num_envs, *self.obs_shape),
+            dtype=torch.float32,
+            device=self.device,
+        )
+        self.actions = torch.zeros(
+            (self.n_steps, self.num_envs), dtype=torch.long, device=self.device
+        )
+        self.log_probs = torch.zeros(
+            (self.n_steps, self.num_envs), dtype=torch.float32, device=self.device
+        )
+        self.rewards = torch.zeros(
+            (self.n_steps, self.num_envs), dtype=torch.float32, device=self.device
+        )
+        self.values = torch.zeros(
+            (self.n_steps, self.num_envs), dtype=torch.float32, device=self.device
+        )
+        self.returns = torch.zeros(
+            (self.n_steps, self.num_envs), dtype=torch.float32, device=self.device
+        )
+        self.advantages = torch.zeros(
+            (self.n_steps, self.num_envs), dtype=torch.float32, device=self.device
+        )
+        self.dones = torch.zeros(
+            (self.n_steps, self.num_envs), dtype=torch.bool, device=self.device
+        )
+        self.action_masks = torch.zeros(
+            (self.n_steps, self.num_envs, self.action_dim),
+            dtype=torch.bool,
+            device=self.device,
+        )
         self.ptr = 0
 
     def add(self, obs, action, reward, value, log_prob, done, action_mask):
-        """Add batch of transitions from one timestep (vectorized environments)."""
         if self.ptr >= self.n_steps:
-            self.reset()
-            raise IndexError("Buffer was full and has been reset.")
+            raise IndexError("Buffer was full.")
 
-        self.observations[self.ptr].copy_(torch.as_tensor(obs, dtype=torch.float32, device=self.device))
-        self.actions[self.ptr].copy_(torch.as_tensor(action, dtype=torch.long, device=self.device))
-        self.rewards[self.ptr].copy_(torch.as_tensor(reward, dtype=torch.float32, device=self.device))
-        self.values[self.ptr].copy_(torch.as_tensor(value, dtype=torch.float32, device=self.device).view(-1).detach())
-        self.log_probs[self.ptr].copy_(torch.as_tensor(log_prob, dtype=torch.float32, device=self.device).detach())
-        self.dones[self.ptr].copy_(torch.as_tensor(done, dtype=torch.bool, device=self.device))
-        self.action_masks[self.ptr].copy_(torch.as_tensor(action_mask, dtype=torch.bool, device=self.device))
+        self.observations[self.ptr].copy_(obs)
+        self.actions[self.ptr].copy_(action)
+        self.rewards[self.ptr].copy_(reward)
+        self.values[self.ptr].copy_(value.view(-1))
+        self.log_probs[self.ptr].copy_(log_prob)
+        self.dones[self.ptr].copy_(done)
+        self.action_masks[self.ptr].copy_(action_mask)
         self.ptr += 1
 
     def compute_advantages_and_returns(self, last_values, gamma=0.99, gae_lambda=0.95):
-        """
-        Compute GAE-Lambda and returns.
-        Assumptions:
-        - self.values[t] = V(s_t)
-        - self.dones[t] = whether episode ended after step t (i.e., whether s_{t+1} is terminal)
-        - last_values = V(s_T) for last states (after rollout).
-        """
-        last_values = torch.as_tensor(last_values, dtype=self.values.dtype,
-                                      device=self.device).reshape(self.num_envs).detach()
+        last_values = last_values.reshape(self.num_envs)
 
-        steps = self.ptr if self.ptr > 0 else self.n_steps
-        advantages = torch.zeros((steps, self.num_envs),
-                                 dtype=self.rewards.dtype, device=self.device)
-        last_gae = torch.zeros(self.num_envs, dtype=self.rewards.dtype, device=self.device)
+        steps = self.ptr
+
+        last_gae = torch.zeros(self.num_envs, dtype=torch.float32, device=self.device)
 
         for t in reversed(range(steps)):
             if t == steps - 1:
@@ -61,40 +70,44 @@ class RolloutBuffer:
             else:
                 next_values = self.values[t + 1]
 
-            # important: next_non_terminal represents "whether s_{t+1} is not terminal"
-            next_non_terminal = 1.0 - self.dones[t].to(dtype=self.rewards.dtype)
+            next_non_terminal = 1.0 - self.dones[t].float()
 
             delta = self.rewards[t] + gamma * next_values * next_non_terminal - self.values[t]
             last_gae = delta + gamma * gae_lambda * next_non_terminal * last_gae
-            advantages[t] = last_gae
 
-        self.advantages[:steps] = advantages
-        self.returns[:steps] = advantages + self.values[:steps]
+            self.advantages[t] = last_gae
+
+        self.returns[:steps] = self.advantages[:steps] + self.values[:steps]
 
     def get_data_loader(self, batch_size, normalize_advantages=True):
-        steps = self.ptr if self.ptr > 0 else self.n_steps
+        steps = self.ptr
         num_samples = steps * self.num_envs
 
-        # More memory-efficient reshaping
-        observations = self.observations[:steps].view(num_samples, *self.obs_shape)
-        actions = self.actions[:steps].view(num_samples)
-        log_probs = self.log_probs[:steps].view(num_samples)
-        returns = self.returns[:steps].view(num_samples)
-        advantages = self.advantages[:steps].view(num_samples)
-        action_masks = self.action_masks[:steps].view(num_samples, self.action_dim)
+        b_obs = self.observations[:steps].view(num_samples, *self.obs_shape)
+        b_actions = self.actions[:steps].view(num_samples)
+        b_log_probs = self.log_probs[:steps].view(num_samples)
+        b_returns = self.returns[:steps].view(num_samples)
+        b_advantages = self.advantages[:steps].view(num_samples)
+        b_values = self.values[:steps].view(num_samples)
+        b_masks = self.action_masks[:steps].view(num_samples, self.action_dim)
 
         if normalize_advantages:
-            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+            adv_mean = b_advantages.mean()
+            adv_std = b_advantages.std()
+            b_advantages = (b_advantages - adv_mean) / (adv_std + 1e-8)
 
-        values = self.values[:steps].view(num_samples)
-        
-        dataset = TensorDataset(
-            observations,
-            actions,
-            log_probs,
-            returns,
-            advantages,
-            action_masks,
-            values
-        )
-        return DataLoader(dataset, batch_size=batch_size, shuffle=True)
+        indices = torch.randperm(num_samples, device=self.device)
+
+        for start in range(0, num_samples, batch_size):
+            end = start + batch_size
+            batch_idx = indices[start:end]
+
+            yield (
+                b_obs[batch_idx],
+                b_actions[batch_idx],
+                b_log_probs[batch_idx],
+                b_returns[batch_idx],
+                b_advantages[batch_idx],
+                b_masks[batch_idx],
+                b_values[batch_idx],
+            )

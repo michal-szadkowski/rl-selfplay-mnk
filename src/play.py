@@ -1,158 +1,204 @@
 import argparse
 import torch
-
-from env.mnk_game_env import create_mnk_env
-from env.mnk_game import Color
+import os
+import sys
+from env.torch_vector_mnk_env import TorchVectorMnkEnv
 from selfplay.policy import Policy, NNPolicy, RandomPolicy
 from model_export import load_any_model
+from env.constants import PLAYER_WHITE
 
 
 class HumanPolicy(Policy):
-    """Policy that allows a human to play by entering moves in the console."""
-
-    def __init__(self, env):
+    def __init__(self, env: TorchVectorMnkEnv):
         self.env = env
 
-    def act(self, obs):
-        """Prompts the human for a move and validates it."""
-        action_mask = obs["action_mask"]
-        legal_moves = [i for i, is_legal in enumerate(action_mask) if is_legal]
+    def act(self, obs, deterministic: bool = False):
+        action_mask = obs["action_mask"][0]  # (Batch=1, Actions) -> (Actions)
+
+        legal_indices = torch.nonzero(action_mask).flatten().cpu().numpy().tolist()
 
         while True:
             try:
-                print(f"\nLegal moves are: {legal_moves}")
-                move_str = input(
-                    f"Enter your move for player '{self.env.agent_selection}' (0 to {len(action_mask) - 1}): "
-                )
+                move_str = input(f"Enter your move (0-{len(action_mask) - 1}): ")
                 move = int(move_str)
-                if move in legal_moves:
-                    return move
+
+                if move in legal_indices:
+                    return torch.tensor([move], device=self.env.device)
                 else:
-                    print(">>> Illegal move. Please try again.")
+                    print(f">>> Illegal move {move}. Try: {legal_indices}")
             except ValueError:
                 print(">>> Invalid input. Please enter a number.")
             except (KeyboardInterrupt, EOFError):
                 print("\nExiting game.")
-                exit()
+                sys.exit()
 
 
-def play_game(env, p1_policy: Policy, p2_policy: Policy):
-    """
-    Runs a single game between two policies, renders the board at each step,
-    and prints the final result.
-    """
-    env.reset()
-    policies = {env.possible_agents[0]: p1_policy, env.possible_agents[1]: p2_policy}
+def play_game(env: TorchVectorMnkEnv, p1_policy: Policy, p2_policy: Policy):
+    obs = env.reset()
+    policies = [p1_policy, p2_policy]  # 0=Black, 1=White
 
     print("\n--- New Game ---")
-    env.render()
+    print_board(env)
 
-    for agent in env.agent_iter():
-        obs, reward, termination, truncation, info = env.last()
+    done = False
+    while not done:
+        current_player = env.current_player[0].item()
+        policy = policies[current_player]
 
-        if termination or truncation:
-            break
+        ai_obs = {
+            "observation": obs["observation"].clone(),
+            "action_mask": obs["action_mask"],
+        }
 
-        # Get action from the correct policy
-        action = policies[agent].act(obs)
-        env.step(action)
+        if current_player == PLAYER_WHITE:
+            ai_obs["observation"] = torch.flip(ai_obs["observation"], dims=(1,))
 
-        print(f"\n--- Player '{agent}' plays move {action} ---")
-        env.render()
-
-    # Announce the final result
-    print("\n--- Game Over ---")
-    winner = env.game.get_winner()
-    if winner is None:
-        # Check if the board is full for a draw
-        if env.game.turn == env.game.m * env.game.n:
-            print("Result: It's a draw!")
+        if isinstance(policy, HumanPolicy):
+            action = policy.act(obs)
         else:
-            print("Game ended without a clear winner.")
-    elif winner == Color.Black:
-        print("Result: Player 1 (Black) wins!")
-    elif winner == Color.White:
-        print("Result: Player 2 (White) wins!")
+            with torch.no_grad():
+                action = policy.act(ai_obs, deterministic=True)
+
+        obs, reward, done_tensor = env.step(action)
+
+        done = done_tensor[0].item()
+        reward_val = reward[0].item()
+
+        player_name = "Black" if current_player == 0 else "White"
+        print(f"\n--- Player {player_name} plays move {action.item()} ---")
+        print_board(env)
+
+    print("\n--- Game Over ---")
+
+    if reward_val == 1.0:
+        winner = "Black" if current_player == 0 else "White"
+        print(f"Result: Player {winner} wins!")
+    elif reward_val == 0.0:
+        print("Result: It's a draw!")
+    else:
+        print(f"Result: Game ended with reward {reward_val}")
+
+
+def print_board(env: TorchVectorMnkEnv):
+    board = env.boards[0].cpu().numpy()
+    m, n = env.m, env.n
+
+    RESET = "\033[0m"
+    RED = "\033[91m"
+    BLUE = "\033[94m"
+    DIM = "\033[90m"
+    BOLD = "\033[1m"
+
+    max_idx = m * n - 1
+    idx_width = len(str(max_idx))
+    cell_width = idx_width + 2
+
+    horizontal_line = "   " + ("+" + "-" * cell_width) * n + "+"
+
+    header = "   "
+    for col in range(n):
+        header += f" {col:^{cell_width - 1}} "
+
+    print(f"\n{horizontal_line}")
+
+    for row in range(m):
+        line_str = f"{row:2d} |"
+
+        for col in range(n):
+            idx = row * n + col
+
+            if board[0, row, col] == 1:
+                val = f"{RED}{BOLD}X{RESET}"
+            elif board[1, row, col] == 1:
+                val = f"{BLUE}{BOLD}O{RESET}"
+            else:
+                val = f"{DIM}{idx}{RESET}"
+
+            if board[0, row, col] == 1 or board[1, row, col] == 1:
+                space_left = (cell_width - 1) // 2
+                space_right = cell_width - 1 - space_left
+                formatted_cell = " " * space_left + val + " " * space_right
+            else:
+                num_str = str(idx)
+                pad = cell_width - len(num_str)
+                pad_l = pad // 2
+                pad_r = pad - pad_l
+                formatted_cell = " " * pad_l + val + " " * pad_r
+
+            line_str += formatted_cell + "|"
+
+        print(line_str)
+        print(horizontal_line)
+    print()
 
 
 def main():
-    """
-    Main function to parse arguments and start the game.
-    Allows playing between models, a human, and a random agent.
-    """
     parser = argparse.ArgumentParser(description="Play a game of MNK.")
     parser.add_argument(
         "--p1",
         type=str,
         required=True,
-        help="Policy for Player 1 (Black). Can be 'human', 'random', or a path to a .pt model file.",
+        help="Player 1 (Black): 'human', 'random', or path",
     )
     parser.add_argument(
         "--p2",
         type=str,
         required=True,
-        help="Policy for Player 2 (White). Can be 'human', 'random', or a path to a .pt model file.",
+        help="Player 2 (White): 'human', 'random', or path",
     )
-    parser.add_argument("--m", type=int, default=9, help="Board width.")
-    parser.add_argument("--n", type=int, default=9, help="Board height.")
-    parser.add_argument("--k", type=int, default=5, help="Number of pieces in a row to win.")
+    parser.add_argument("--m", type=int, default=9)
+    parser.add_argument("--n", type=int, default=9)
+    parser.add_argument("--k", type=int, default=5)
 
     args = parser.parse_args()
 
-    # Create the game environment
-    env = create_mnk_env(m=args.m, n=args.n, k=args.k, render_mode="human")
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    # Get observation and action space dimensions from the environment
-    obs_shape = env.observation_space("black")["observation"].shape
-    action_dim = env.action_space("black").n
+    env = TorchVectorMnkEnv(m=args.m, n=args.n, k=args.k, num_envs=1, device=device)
+    action_dim = args.m * args.n
 
     def load_policy_from_arg(policy_arg: str) -> Policy:
-        """Helper function to load a policy based on the command-line argument."""
         if policy_arg.lower() == "human":
             return HumanPolicy(env)
         if policy_arg.lower() == "random":
-            return RandomPolicy(env.action_space("black"))
+            return RandomPolicy(action_dim)
 
-        # Otherwise, load the policy from a model file
         try:
             print(f"Loading model from: {policy_arg}")
-            import os
+            import glob
 
             if os.path.isdir(policy_arg):
-                # Directory - find latest model
-                import glob
                 json_files = sorted(glob.glob(os.path.join(policy_arg, "*.json")))
                 if not json_files:
-                    print(f"Error: No model metadata found in directory '{policy_arg}'")
-                    exit(1)
-                model_id = os.path.basename(json_files[-1])[:-5]  # Remove .json
+                    raise FileNotFoundError(f"No .json metadata in {policy_arg}")
+                model_id = os.path.basename(json_files[-1])[:-5]
                 model_dir = policy_arg
             else:
-                # File path
                 model_dir, filename = os.path.split(policy_arg)
-                model_id = filename.replace('.pt', '')
+                model_id = filename.replace(".pt", "")
 
             network = load_any_model(model_dir, model_id, device=device)
-            return NNPolicy(network, device=device)
-        except Exception as e:
-            print(f"Error loading model: {e}")
-            exit(1)
+            network.eval()
 
-    # Load policies for both players
+            return NNPolicy(network)
+
+        except Exception as e:
+            print(f"Error loading model '{policy_arg}': {e}")
+            import traceback
+
+            traceback.print_exc()
+            sys.exit(1)
+
     p1_policy = load_policy_from_arg(args.p1)
     p2_policy = load_policy_from_arg(args.p2)
 
     print("--- Game Setup ---")
-    print(f"Player 1 (Black): {args.p1.capitalize()}")
-    print(f"Player 2 (White): {args.p2.capitalize()}")
-    print(f"Board: {args.m}x{args.n}, Win: {args.k}-in-a-row")
+    print(f"Player 1 (Black): {args.p1}")
+    print(f"Player 2 (White): {args.p2}")
+    print(f"Board: {args.m}x{args.n}, Win: {args.k}")
     print(f"Device: {device}")
 
-    # Start the game
     play_game(env, p1_policy, p2_policy)
-
-    env.close()
 
 
 if __name__ == "__main__":

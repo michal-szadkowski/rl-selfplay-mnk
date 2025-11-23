@@ -10,8 +10,6 @@ from .rollout_buffer import RolloutBuffer
 
 @dataclass
 class TrainingMetrics:
-    """Training metrics from a single PPO learning iteration."""
-
     mean_reward: float
     mean_length: float
     actor_loss: float
@@ -41,32 +39,12 @@ class PPOAgent:
         batch_size=64,
         value_coef=0.5,
         entropy_coef=0.01,
-        device="cpu",
+        device="cuda",
         num_envs=1,
         lr_scheduler=None,
         entropy_scheduler=None,
         optimizer=None,
     ):
-        """
-        Initializes the PPO agent.
-
-        Args:
-            network: The ActorCritic network.
-            n_steps (int): Total size of the rollout buffer.
-            learning_rate (float): Learning rate for the optimizer.
-            gamma (float): Discount factor for future rewards.
-            gae_lambda (float): GAE lambda parameter for advantage estimation.
-            clip_range (float): PPO clip range for policy updates.
-            ppo_epochs (int): Number of PPO epochs per rollout.
-            batch_size (int): Size of the mini-batches for network updates.
-            value_coef (float): Value loss coefficient.
-            entropy_coef (float): Entropy bonus coefficient.
-            device (str): The device to run the calculations on.
-            num_envs (int): The number of parallel environments.
-            lr_scheduler: External learning rate scheduler (optional).
-            entropy_scheduler: External entropy coefficient scheduler (optional).
-            optimizer: External optimizer (optional, created if not provided).
-        """
         self.device = device
         self.network = network.to(self.device)
         self.gamma = gamma
@@ -78,6 +56,7 @@ class PPOAgent:
         self.entropy_coef = entropy_coef
         self.num_envs = num_envs
         self.n_steps = n_steps
+
         if optimizer is None:
             self.optimizer = optim.AdamW(
                 self.network.parameters(), lr=learning_rate, weight_decay=1e-4
@@ -89,147 +68,108 @@ class PPOAgent:
             self.n_steps, self.num_envs, obs_shape, action_dim, device=self.device
         )
 
-        # Set external schedulers
         self.lr_scheduler = lr_scheduler
         self.entropy_scheduler = entropy_scheduler
 
     def learn(self, vec_env):
-        """
-        The main training loop for the PPO agent, collecting rollouts from a
-        vectorized environment.
-
-        Returns:
-            TrainingMetrics: Object containing all training metrics
-        """
         rollout_start_time = time.time()
+
         obs, _ = vec_env.reset()
-        ep_rewards = []
-        ep_lengths = []
+
+        current_ep_reward = torch.zeros(self.num_envs, device=self.device)
+        current_ep_len = torch.zeros(self.num_envs, device=self.device)
+
+        finished_ep_rewards = []
+        finished_ep_lengths = []
 
         for _ in range(self.buffer.n_steps):
-            # 1. Collect one step of the rollout from all parallel environments
             observation = obs["observation"]
-            action_mask = torch.as_tensor(
-                obs["action_mask"], dtype=torch.bool, device=self.device
-            )
+            action_mask = obs["action_mask"]
 
             with torch.no_grad():
-                dist, values = self.network(
-                    torch.as_tensor(observation, dtype=torch.float32, device=self.device),
-                    action_mask,
-                )
+                dist, values = self.network(observation, action_mask)
                 actions = dist.sample()
                 log_probs = dist.log_prob(actions)
 
-            next_obs, rewards, terminateds, truncateds, infos = vec_env.step(
-                actions.cpu().numpy()
-            )
+            next_obs, rewards, terminateds, truncateds, _ = vec_env.step(actions)
+
             dones = terminateds | truncateds
 
             self.buffer.add(
                 observation, actions, rewards, values, log_probs, dones, action_mask
             )
 
-            obs = next_obs
+            current_ep_reward += rewards
+            current_ep_len += 1
 
-            if "_episode" in infos:
-                for i, done_flag in enumerate(infos["_episode"]):
-                    if done_flag:
-                        r = infos["episode"]["r"][i]
-                        l = infos["episode"]["l"][i]
-                        t = infos["episode"]["t"][i]
-                        ep_rewards.append(r)
-                        ep_lengths.append(l)
+            if dones.any():
+                done_indices = torch.nonzero(dones).squeeze(1)
+
+                finished_ep_rewards.extend(current_ep_reward[done_indices].tolist())
+                finished_ep_lengths.extend(current_ep_len[done_indices].tolist())
+
+                current_ep_reward[done_indices] = 0
+                current_ep_len[done_indices] = 0
+
+            obs = next_obs
 
         rollout_end_time = time.time()
         rollout_time = rollout_end_time - rollout_start_time
         total_steps = self.buffer.n_steps * self.num_envs
         fps = total_steps / rollout_time if rollout_time > 0 else 0.0
 
-        # 2. Compute advantages and returns for the full rollout
         with torch.no_grad():
-            # Get the value of the last observation in each environment
-            _, last_values_tensor = self.network(
-                torch.as_tensor(obs["observation"], dtype=torch.float32, device=self.device)
-            )
-            last_values = last_values_tensor.view(self.num_envs)
+            _, last_values_tensor = self.network(obs["observation"], obs["action_mask"])
+            last_values = last_values_tensor.reshape(self.num_envs)
 
         self.buffer.compute_advantages_and_returns(last_values, self.gamma, self.gae_lambda)
 
-        # 3. Update networks using the full rollout
         learn_start_time = time.time()
-        (
-            actor_loss,
-            critic_loss,
-            entropy_loss,
-            grad_norm,
-            clip_fraction,
-            explained_var,
-            approx_kl,
-        ) = self.update_networks()
+        metrics = self.update_networks()
         learn_end_time = time.time()
         learn_time = learn_end_time - learn_start_time
 
-        # 4. Step the learning rate scheduler and entropy scheduler
         if self.lr_scheduler:
             self.lr_scheduler.step()
         if self.entropy_scheduler:
             self.entropy_scheduler.step()
             self.entropy_coef = self.entropy_scheduler.get_last_coef()
 
-        # 5. Reset the buffer for the next rollout
         self.buffer.reset()
 
-        # Create and return TrainingMetrics object
-        if len(ep_rewards) > 0:
-            return TrainingMetrics(
-                mean_reward=np.mean(ep_rewards),
-                mean_length=np.mean(ep_lengths),
-                actor_loss=actor_loss,
-                critic_loss=critic_loss,
-                entropy_loss=entropy_loss,
-                grad_norm=grad_norm,
-                clip_fraction=clip_fraction,
-                explained_variance=explained_var,
-                approx_kl=approx_kl,
-                fps=fps,
-                rollout_time=rollout_time,
-                learn_time=learn_time,
-            )
+        mean_reward = np.mean(finished_ep_rewards) if finished_ep_rewards else 0.0
+        mean_length = np.mean(finished_ep_lengths) if finished_ep_lengths else 0.0
+
         return TrainingMetrics(
-            mean_reward=0.0,
-            mean_length=0.0,
-            actor_loss=actor_loss,
-            critic_loss=critic_loss,
-            entropy_loss=entropy_loss,
-            grad_norm=grad_norm,
-            clip_fraction=clip_fraction,
-            explained_variance=explained_var,
-            approx_kl=approx_kl,
+            mean_reward=mean_reward,
+            mean_length=mean_length,
+            actor_loss=metrics[0],
+            critic_loss=metrics[1],
+            entropy_loss=metrics[2],
+            grad_norm=metrics[3],
+            clip_fraction=metrics[4],
+            explained_variance=metrics[5],
+            approx_kl=metrics[6],
             fps=fps,
             rollout_time=rollout_time,
             learn_time=learn_time,
         )
 
     def update_networks(self):
-        """
-        Updates the Actor and Critic networks using PPO algorithm with multiple epochs
-        and clipped objective function.
-        """
-        actor_losses = []
-        critic_losses = []
-        entropy_losses = []
-        grad_norms = []
-        clip_fractions = []
-        explained_vars = []
-        approx_kls = []
 
-        # Perform multiple PPO epochs on the same rollout data
+        total_actor_loss = torch.tensor(0.0, device=self.device)
+        total_critic_loss = torch.tensor(0.0, device=self.device)
+        total_entropy_loss = torch.tensor(0.0, device=self.device)
+        total_grad_norm = torch.tensor(0.0, device=self.device)
+        total_clip_frac = torch.tensor(0.0, device=self.device)
+        total_explained_var = torch.tensor(0.0, device=self.device)
+        total_approx_kl = torch.tensor(0.0, device=self.device)
+
+        updates_count = 0
+
         for epoch in range(self.ppo_epochs):
-            # Get a DataLoader that will provide mini-batches (shuffled each epoch)
             data_loader = self.buffer.get_data_loader(self.batch_size)
 
-            # Iterate over mini-batches in this epoch
             for (
                 observations,
                 actions,
@@ -240,15 +180,13 @@ class PPOAgent:
                 old_values,
             ) in data_loader:
                 dist, values = self.network(observations, action_masks)
+                values = values.squeeze()
 
-                # Calculate new log probabilities and entropy
-                new_log_probs = dist.log_prob(actions.squeeze())
+                new_log_probs = dist.log_prob(actions)
                 entropy = dist.entropy().mean()
 
-                # Calculate ratio (pi_theta / pi_theta_old)
                 ratio = torch.exp(new_log_probs - old_log_probs)
 
-                # PPO Clipped Objective
                 surr1 = ratio * advantages
                 surr2 = (
                     torch.clamp(ratio, 1.0 - self.clip_range, 1.0 + self.clip_range)
@@ -256,63 +194,51 @@ class PPOAgent:
                 )
                 actor_loss = -torch.min(surr1, surr2).mean()
 
-                with torch.no_grad():
-                    # Explained Variance: How well the critic network predicts actual returns
-                    returns_var = returns.var()
-                    # Protection against division by zero if all returns are the same
-                    if returns_var > 1e-8:
-                        explained_var = (
-                            1
-                            - F.mse_loss(values.squeeze(), returns, reduction="mean")
-                            / returns_var
-                        )
-                    else:
-                        # If return variance is zero, it cannot be explained
-                        explained_var = torch.tensor(0.0, device=self.device)
-                    explained_vars.append(explained_var.item())
-
-                    # Approximate KL Divergence: How much the policy has changed
-                    log_ratio = new_log_probs - old_log_probs
-                    approx_kl = torch.mean((torch.exp(log_ratio) - 1) - log_ratio)
-                    approx_kls.append(approx_kl.item())
-
-                # Calculate clip fraction (percentage of clips)
-                clip_fraction = (torch.abs(ratio - 1.0) > self.clip_range).float().mean()
-                clip_fractions.append(clip_fraction.item())
-
-                # Critic loss (value function loss)
-                critic_loss = F.mse_loss(values.squeeze(), returns)
-
-                # Entropy bonus
+                critic_loss = F.mse_loss(values, returns)
                 entropy_loss = -entropy
 
-                # Total loss with coefficients
                 total_loss = (
                     actor_loss
                     + self.value_coef * critic_loss
                     + self.entropy_coef * entropy_loss
                 )
 
-                self.optimizer.zero_grad()
+                self.optimizer.zero_grad(set_to_none=True)
                 total_loss.backward()
 
                 grad_norm = torch.nn.utils.clip_grad_norm_(
                     self.network.parameters(), max_norm=0.5
                 )
-                grad_norms.append(grad_norm.item())
 
                 self.optimizer.step()
 
-                actor_losses.append(actor_loss.item())
-                critic_losses.append(critic_loss.item())
-                entropy_losses.append(entropy_loss.item())
+                with torch.no_grad():
+                    updates_count += 1
+                    total_actor_loss += actor_loss.detach()
+                    total_critic_loss += critic_loss.detach()
+                    total_entropy_loss += entropy_loss.detach()
+                    total_grad_norm += grad_norm
+
+                    clip_frac = (torch.abs(ratio - 1.0) > self.clip_range).float().mean()
+                    total_clip_frac += clip_frac
+
+                    log_ratio = new_log_probs - old_log_probs
+                    approx_kl = ((torch.exp(log_ratio) - 1) - log_ratio).mean()
+                    total_approx_kl += approx_kl
+
+                    returns_var = returns.var()
+                    if returns_var > 1e-8:
+                        explained_var = 1 - F.mse_loss(values, returns) / returns_var
+                    else:
+                        explained_var = torch.tensor(0.0, device=self.device)
+                    total_explained_var += explained_var
 
         return (
-            np.mean(actor_losses),
-            np.mean(critic_losses),
-            np.mean(entropy_losses),
-            np.mean(grad_norms),
-            np.mean(clip_fractions),
-            np.mean(explained_vars),
-            np.mean(approx_kls),
+            (total_actor_loss / updates_count).item(),
+            (total_critic_loss / updates_count).item(),
+            (total_entropy_loss / updates_count).item(),
+            (total_grad_norm / updates_count).item(),
+            (total_clip_frac / updates_count).item(),
+            (total_explained_var / updates_count).item(),
+            (total_approx_kl / updates_count).item(),
         )

@@ -124,10 +124,10 @@ def test_agent_win_reward(wrapper_factory):
     wrapper.env.boards[0, 0, 0, 1] = 1
 
     # Agent wygrywa ruchem w (0,2) -> index 2
-    obs, rewards, dones, _ = wrapper.step(torch.tensor([2], device=wrapper.device))
+    obs, rewards, terms, trunc, _ = wrapper.step(torch.tensor([2], device=wrapper.device))
 
     assert rewards[0].item() == 1.0
-    assert dones[0].item() is True
+    assert terms[0].item() is True
     # Agent widzi wygraną planszę
     assert obs["observation"][0, 0].sum() == 3.0
 
@@ -152,9 +152,9 @@ def test_opponent_win_penalty(wrapper_factory):
 
     # Agent wykonuje ruch w (2,0) [idx 6]. Nie wygrywa, nie blokuje.
     # Sekwencja: Agent Move -> Opponent Move (w 5) -> Opponent Win.
-    obs, rewards, dones, _ = wrapper.step(torch.tensor([6], device=wrapper.device))
+    obs, rewards, terms, truncs, _ = wrapper.step(torch.tensor([6], device=wrapper.device))
 
-    assert dones[0].item() is True, "Gra powinna się skończyć"
+    assert terms[0].item() is True, "Gra powinna się skończyć"
     assert rewards[0].item() == -1.0, "Agent powinien dostać karę"
 
     # Sprawdzenie wizualne: Opponent (Channel 1) powinien mieć 3 kamienie w rzędzie 1
@@ -171,17 +171,19 @@ def test_autoreset_next_step(wrapper_factory):
     wrapper.env.boards[0, 0, 0, 1] = 1
 
     # KROK 1: Wygrana
-    obs, rewards, dones, _ = wrapper.step(torch.tensor([2], device=wrapper.device))
-    assert dones[0].item() is True
+    obs, rewards, terms, _, _ = wrapper.step(torch.tensor([2], device=wrapper.device))
+    assert terms[0].item() is True
     assert rewards[0].item() == 1.0
     # Obserwacja to nadal stara gra (wygrana)
     assert obs["observation"][0, 0].sum() == 3.0
 
     # KROK 2: Autoreset
     # Dowolna akcja (zostanie zignorowana, bo env jest w stanie autoreset)
-    obs_new, rewards_new, dones_new, _ = wrapper.step(torch.tensor([0], device=wrapper.device))
+    obs_new, rewards_new, terms_new, _, _ = wrapper.step(
+        torch.tensor([0], device=wrapper.device)
+    )
 
-    assert dones_new[0].item() is False
+    assert terms_new[0].item() is False
     assert rewards_new[0].item() == 0.0
     # Obserwacja to NOWA gra (pusta)
     assert obs_new["observation"][0, 0].sum() == 0.0
@@ -196,7 +198,7 @@ def test_opponent_starts_after_reset(wrapper_factory):
 
     # Resetujemy i wymuszamy, że Agent jest Biały (1)
     # To oznacza, że Przeciwnik (Czarny) zaczyna gre.
-    obs = wrapper.reset(options={"agent_side": 1})
+    obs, _ = wrapper.reset(options={"agent_side": 1})
 
     # Agent (Biały) powinien widzieć:
     # Kanał 0 (Me): Pusto

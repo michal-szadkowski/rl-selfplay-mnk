@@ -33,12 +33,10 @@ Examples:
         """,
     )
 
-    # Input sources - files and/or folders
     parser.add_argument(
         "paths", nargs="+", help="Model files and/or folders containing models to compare"
     )
 
-    # Tournament configuration
     parser.add_argument(
         "--games",
         "-g",
@@ -79,13 +77,11 @@ def main():
     """Main entry point."""
     args = parse_arguments()
 
-    # Validate paths
     valid_paths = [p for p in args.paths if os.path.exists(p) or "*" in p or "?" in p]
     if not valid_paths:
         print("Error: No valid model paths found!")
         sys.exit(1)
 
-    # Load models
     print("Loading models...")
     models = ModelLoader(device=args.device).load_from_paths(valid_paths)
     if len(models) < 2:
@@ -96,7 +92,6 @@ def main():
     for model in models:
         print(f"  - {model.unique_id}")
 
-    # Run tournament
     game_config = GameConfig(
         m=args.board[0], n=args.board[1], k=args.board[2], device=args.device
     )
@@ -107,13 +102,9 @@ def main():
         print("No matches were played!")
         sys.exit(1)
 
-    # Calculate ratings
     elo_ratings = ELOTracker().calculate_ratings(match_results)
 
-    # Save results
     output_dir = save_results(args.output, elo_ratings, match_results, args)
-
-    # Generate visualizations
 
     ResultsVisualizer(output_dir).create_all_visualizations(
         {
@@ -129,7 +120,6 @@ def save_results(output_dir_base, elo_ratings, match_results, args):
     output_dir = f"{output_dir_base}/{timestamp}"
     os.makedirs(output_dir, exist_ok=True)
 
-    # Save CSV files
     elo_ratings.to_csv(f"{output_dir}/elo_ratings.csv", index=False)
     match_results.to_csv(f"{output_dir}/match_results.csv", index=False)
 
