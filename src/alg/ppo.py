@@ -4,6 +4,7 @@ import torch.nn.functional as F
 from dataclasses import dataclass
 import numpy as np
 import time
+from alg.compile import safe_compile
 
 from .rollout_buffer import RolloutBuffer
 
@@ -70,6 +71,8 @@ class PPOAgent:
 
         self.lr_scheduler = lr_scheduler
         self.entropy_scheduler = entropy_scheduler
+
+        self.network = safe_compile(self.network, mode="reduce-overhead")
 
     def learn(self, vec_env):
         rollout_start_time = time.time()

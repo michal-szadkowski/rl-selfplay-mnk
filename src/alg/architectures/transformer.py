@@ -79,12 +79,11 @@ class BaseTransformerActorCritic(nn.Module):
             if action_mask.dim() == 1 and logits.dim() == 2:
                 action_mask = action_mask.unsqueeze(0)
 
-            logits = logits.clone()
-            logits[~action_mask] = -torch.inf
+            min_val = -torch.inf
+            logits = torch.where(action_mask.bool(), logits, min_val)
 
-            all_invalid = action_mask.sum(dim=-1) == 0
-            if all_invalid.any():
-                logits[all_invalid] = 0.0
+            is_all_masked = logits.max(dim=1, keepdim=True)[0] == min_val
+            logits = torch.where(is_all_masked, torch.zeros_like(logits), logits)
 
         dist = Categorical(logits=logits)
         return dist, value
@@ -102,9 +101,7 @@ class TransformerSActorCritic(BaseTransformerActorCritic):
 
 class TransformerLActorCritic(BaseTransformerActorCritic):
     def __init__(self, obs_shape, action_dim):
-        super().__init__(
-            obs_shape, action_dim, embed_dim=256, num_layers=6, num_heads=8
-        )
+        super().__init__(obs_shape, action_dim, embed_dim=256, num_layers=6, num_heads=8)
         self._architecture_name = "transformer_l"
         self._architecture_params = {
             "obs_shape": [int(x) for x in obs_shape],
