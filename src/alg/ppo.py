@@ -215,7 +215,7 @@ class PPOAgent:
                 else:
                     # Ścieżka dla BF16 (RTX 30xx/50xx)
                     total_loss.backward()
-                    torch.nn.utils.clip_grad_norm_(self.network.parameters(), 0.5)
+                    grad_norm = torch.nn.utils.clip_grad_norm_(self.network.parameters(), 0.5)
                     self.optimizer.step()
 
                 with torch.no_grad():
