@@ -46,6 +46,7 @@ class BaseTransformerActorCritic(nn.Module):
             nn.LayerNorm(256),
             nn.ReLU(),
             nn.Linear(256, 1),
+            nn.Tanh(),
         )
 
         # Initialize parameters that won't be touched by the function

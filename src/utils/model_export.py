@@ -6,9 +6,6 @@ from typing import Any, Callable, Dict, List, Optional
 
 import torch
 
-from alg.legacy_arch.cnn import CnnActorCritic
-from alg.legacy_arch.resnet import ResNetActorCritic
-from alg.legacy_arch.transformer import TransformerActorCritic
 from alg.architectures.cnn import CnnSActorCritic, CnnLActorCritic
 from alg.architectures.resnet import ResNetSActorCritic, ResNetLActorCritic
 from alg.architectures.transformer import (
@@ -18,9 +15,6 @@ from alg.architectures.transformer import (
 
 
 ARCHITECTURE_REGISTRY: Dict[str, Callable[..., torch.nn.Module]] = {
-    "cnn": CnnActorCritic,
-    "resnet": ResNetActorCritic,
-    "transformer": TransformerActorCritic,
     "cnn_s": CnnSActorCritic,
     "cnn_l": CnnLActorCritic,
     "resnet_s": ResNetSActorCritic,
@@ -132,16 +126,12 @@ def create_model_from_architecture(architecture_name: str, **kwargs) -> torch.nn
     return ARCHITECTURE_REGISTRY[architecture_name](**kwargs)
 
 
-def load_any_model(
-    model_dir: str, model_id: str, device: str = "cpu"
-) -> torch.nn.Module:
+def load_any_model(model_dir: str, model_id: str, device: str = "cpu") -> torch.nn.Module:
     """Load model from any directory without knowing architecture beforehand."""
     metadata_path = os.path.join(model_dir, f"{model_id}.json")
 
     if not os.path.exists(metadata_path):
-        raise FileNotFoundError(
-            f"Metadata for model {model_id} not found in {model_dir}"
-        )
+        raise FileNotFoundError(f"Metadata for model {model_id} not found in {model_dir}")
 
     with open(metadata_path, "r") as f:
         metadata_dict = json.load(f)

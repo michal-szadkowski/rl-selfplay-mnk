@@ -1,11 +1,10 @@
 import torch
-import torch.optim as optim
 import torch.nn.functional as F
 from dataclasses import dataclass
 import numpy as np
 import time
-from alg.compile import safe_compile
-
+from utils.hardware import HardwareConfig, safe_compile_model
+from torch.amp import GradScaler, autocast
 from .rollout_buffer import RolloutBuffer
 
 
@@ -26,13 +25,15 @@ class TrainingMetrics:
 
 
 class PPOAgent:
+
     def __init__(
         self,
         obs_shape,
         action_dim,
         network,
+        hw_config: HardwareConfig,
         n_steps: int,
-        learning_rate=7e-4,
+        optimizer,
         gamma=0.99,
         gae_lambda=0.95,
         clip_range=0.2,
@@ -40,14 +41,14 @@ class PPOAgent:
         batch_size=64,
         value_coef=0.5,
         entropy_coef=0.01,
-        device="cuda",
         num_envs=1,
         lr_scheduler=None,
         entropy_scheduler=None,
-        optimizer=None,
     ):
-        self.device = device
+        self.hw = hw_config
+        self.device = hw_config.device
         self.network = network.to(self.device)
+
         self.gamma = gamma
         self.gae_lambda = gae_lambda
         self.clip_range = clip_range
@@ -58,12 +59,10 @@ class PPOAgent:
         self.num_envs = num_envs
         self.n_steps = n_steps
 
-        if optimizer is None:
-            self.optimizer = optim.AdamW(
-                self.network.parameters(), lr=learning_rate, weight_decay=1e-4
-            )
-        else:
-            self.optimizer = optimizer
+        self.scaler = GradScaler() if self.hw.use_scaler else None
+        self.network = safe_compile_model(self.network, self.hw)
+
+        self.optimizer = optimizer
 
         self.buffer = RolloutBuffer(
             self.n_steps, self.num_envs, obs_shape, action_dim, device=self.device
@@ -71,8 +70,6 @@ class PPOAgent:
 
         self.lr_scheduler = lr_scheduler
         self.entropy_scheduler = entropy_scheduler
-
-        self.network = safe_compile(self.network, mode="reduce-overhead")
 
     def learn(self, vec_env):
         rollout_start_time = time.time()
@@ -182,38 +179,44 @@ class PPOAgent:
                 action_masks,
                 old_values,
             ) in data_loader:
-                dist, values = self.network(observations, action_masks)
-                values = values.squeeze()
-
-                new_log_probs = dist.log_prob(actions)
-                entropy = dist.entropy().mean()
-
-                ratio = torch.exp(new_log_probs - old_log_probs)
-
-                surr1 = ratio * advantages
-                surr2 = (
-                    torch.clamp(ratio, 1.0 - self.clip_range, 1.0 + self.clip_range)
-                    * advantages
-                )
-                actor_loss = -torch.min(surr1, surr2).mean()
-
-                critic_loss = F.mse_loss(values, returns)
-                entropy_loss = -entropy
-
-                total_loss = (
-                    actor_loss
-                    + self.value_coef * critic_loss
-                    + self.entropy_coef * entropy_loss
-                )
-
                 self.optimizer.zero_grad(set_to_none=True)
-                total_loss.backward()
 
-                grad_norm = torch.nn.utils.clip_grad_norm_(
-                    self.network.parameters(), max_norm=0.5
-                )
+                with autocast(device_type="cuda", dtype=self.hw.dtype):
+                    dist, values = self.network(observations, action_masks)
+                    values = values.squeeze()
 
-                self.optimizer.step()
+                    new_log_probs = dist.log_prob(actions)
+                    entropy = dist.entropy().mean()
+
+                    ratio = torch.exp(new_log_probs - old_log_probs)
+
+                    surr1 = ratio * advantages
+                    surr2 = (
+                        torch.clamp(ratio, 1.0 - self.clip_range, 1.0 + self.clip_range)
+                        * advantages
+                    )
+                    actor_loss = -torch.min(surr1, surr2).mean()
+
+                    critic_loss = F.mse_loss(values, returns)
+                    entropy_loss = -entropy
+
+                    total_loss = (
+                        actor_loss
+                        + self.value_coef * critic_loss
+                        + self.entropy_coef * entropy_loss
+                    )
+
+                if self.scaler:
+                    self.scaler.scale(total_loss).backward()
+                    self.scaler.unscale_(self.optimizer)
+                    grad_norm = torch.nn.utils.clip_grad_norm_(self.network.parameters(), 0.5)
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
+                else:
+                    # Ścieżka dla BF16 (RTX 30xx/50xx)
+                    total_loss.backward()
+                    torch.nn.utils.clip_grad_norm_(self.network.parameters(), 0.5)
+                    self.optimizer.step()
 
                 with torch.no_grad():
                     updates_count += 1

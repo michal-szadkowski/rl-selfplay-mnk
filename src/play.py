@@ -4,7 +4,7 @@ import os
 import sys
 from env.torch_vector_mnk_env import TorchVectorMnkEnv
 from selfplay.policy import Policy, NNPolicy, RandomPolicy
-from model_export import load_any_model
+from utils.model_export import load_any_model
 from env.constants import PLAYER_WHITE
 
 

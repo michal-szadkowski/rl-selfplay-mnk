@@ -61,6 +61,7 @@ class BaseResNetActorCritic(nn.Module):
             nn.LayerNorm(256),
             nn.ReLU(),
             nn.Linear(256, 1),
+            nn.Tanh(),
         )
 
         initialize_weights_explicit(
