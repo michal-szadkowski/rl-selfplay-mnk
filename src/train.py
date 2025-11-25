@@ -156,6 +156,8 @@ def train_mnk(run):
             handle_training_error(run, e, i, current_env_steps)
             continue
 
+    model_exporter.export_model(agent.network, total_iterations, is_benchmark_breaker=False)
+
 
 def log_training_metrics(
     run,
@@ -221,13 +223,13 @@ def get_default_config():
     return {
         "mnk": (9, 9, 5),
         # lr
-        "learning_rate": 5e-5,
-        "lr_warmup_steps": 200_000,
+        "learning_rate": 5e-4,
+        "lr_warmup_steps": 0,
         # entropy
         "entropy_coef": 0.02,
         "entropy_coef_schedule": {
             "type": "linear",
-            "params": {"final_coef": 0.001, "total_steps": 30_000_000},
+            "params": {"final_coef": 0.001, "total_steps": 100_000_000},
         },
         # ppo
         "gamma": 0.99,
@@ -235,7 +237,7 @@ def get_default_config():
         "batch_size": 8192,  # 16384
         "n_steps": 256,
         "ppo_epochs": 4,
-        "total_environment_steps": 200_000_000,
+        "total_environment_steps": 300_000_000,
         "num_envs": 1024,
         # validation
         "benchmark_update_threshold_score": 0.60,
@@ -249,6 +251,24 @@ def get_default_config():
 
 
 if __name__ == "__main__":
-    config = get_default_config()
-    with wandb.init(config=config, project="mnk") as run:
-        train_mnk(run)
+    architectures = [
+        "transformer_s",
+        "resnet_s",
+        "cnn_s",
+        "transformer_l",
+        "resnet_l",
+        "cnn_l",
+    ]
+
+    for arch in architectures:
+        config = get_default_config()
+        config["architecture_name"] = arch
+
+        with wandb.init(
+            config=config,
+            project="mnk",
+            group="main_run_small_board",
+            name=f"run_{arch}",
+            tags=[arch, "main_experiment"],
+        ) as run:
+            train_mnk(run)

@@ -145,7 +145,15 @@ def load_any_model(model_dir: str, model_id: str, device: str = "cpu") -> torch.
         metadata.architecture_name, **metadata.architecture_params
     )
     state_dict = torch.load(model_path, map_location=device)
-    model.load_state_dict(state_dict)
+    new_state_dict = {}
+    for key, value in state_dict.items():
+        if key.startswith("_orig_mod."):
+            # Usuwamy pierwsze 10 znaków ("_orig_mod.")
+            new_key = key[10:]
+            new_state_dict[new_key] = value
+        else:
+            new_state_dict[key] = value
+    model.load_state_dict(new_state_dict)
     model.to(device)
     model.eval()
     return model
