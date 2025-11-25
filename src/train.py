@@ -223,7 +223,7 @@ def get_default_config():
     return {
         "mnk": (9, 9, 5),
         # lr
-        "learning_rate": 5e-4,
+        "learning_rate": 3e-4,
         "lr_warmup_steps": 0,
         # entropy
         "entropy_coef": 0.02,
