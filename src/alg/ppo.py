@@ -201,9 +201,9 @@ class PPOAgent:
                     entropy_loss = -entropy
 
                     total_loss = (
-                        actor_loss
-                        + self.value_coef * critic_loss
-                        + self.entropy_coef * entropy_loss
+                        actor_loss.float()
+                        + self.value_coef * critic_loss.float()
+                        + self.entropy_coef * entropy_loss.float()
                     )
 
                 if self.scaler:
