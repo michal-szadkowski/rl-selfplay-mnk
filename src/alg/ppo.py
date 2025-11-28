@@ -210,6 +210,8 @@ class PPOAgent:
                     self.scaler.scale(total_loss).backward()
                     self.scaler.unscale_(self.optimizer)
                     grad_norm = torch.nn.utils.clip_grad_norm_(self.network.parameters(), 0.5)
+                    if not torch.isfinite(grad_norm):
+                        grad_norm = torch.tensor(0.0, device=self.device)
                     self.scaler.step(self.optimizer)
                     self.scaler.update()
                 else:
