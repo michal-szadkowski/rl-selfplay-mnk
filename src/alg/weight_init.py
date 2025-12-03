@@ -35,6 +35,21 @@ def initialize_weights_explicit(modules_to_init, actor_head, critic_head):
             elif isinstance(submodule, (nn.BatchNorm2d, nn.LayerNorm)):
                 nn.init.ones_(submodule.weight)
                 nn.init.zeros_(submodule.bias)
+            elif isinstance(submodule, nn.MultiheadAttention):
+                if submodule.in_proj_weight is not None:
+                    gain = nn.init.calculate_gain("relu")
+                    nn.init.orthogonal_(submodule.in_proj_weight, gain=gain)
+                if submodule.in_proj_bias is not None:
+                    nn.init.zeros_(submodule.in_proj_bias)
+                if submodule.q_proj_weight is not None:
+                    gain = nn.init.calculate_gain("relu")
+                    nn.init.orthogonal_(submodule.q_proj_weight, gain=gain)
+                if submodule.k_proj_weight is not None:
+                    gain = nn.init.calculate_gain("relu")
+                    nn.init.orthogonal_(submodule.k_proj_weight, gain=gain)
+                if submodule.v_proj_weight is not None:
+                    gain = nn.init.calculate_gain("relu")
+                    nn.init.orthogonal_(submodule.v_proj_weight, gain=gain)
 
     # 2. Special OVERWRITE for the last layer of Actor head
     if actor_head:

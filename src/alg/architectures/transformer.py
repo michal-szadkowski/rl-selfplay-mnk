@@ -53,9 +53,8 @@ class BaseTransformerActorCritic(nn.Module):
         nn.init.normal_(self.pos_embed, std=0.02)
 
         # Explicitly pass only what we want to initialize
-        # Note: self.transformer is NOT on this list
         initialize_weights_explicit(
-            modules_to_init=[self.cell_embed],  # Only our input layer
+            modules_to_init=[self.cell_embed, self.transformer],
             actor_head=self.policy_head,
             critic_head=self.value_head,
         )
