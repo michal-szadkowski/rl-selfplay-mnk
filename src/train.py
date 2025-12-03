@@ -223,18 +223,18 @@ def get_default_config():
     return {
         "mnk": (9, 9, 5),
         # lr
-        "learning_rate": 3e-4,
-        "lr_warmup_steps": 0,
+        "learning_rate": 5e-4,
+        "lr_warmup_steps": 5_000_000,
         # entropy
-        "entropy_coef": 0.02,
+        "entropy_coef": 0.04,
         "entropy_coef_schedule": {
             "type": "linear",
-            "params": {"final_coef": 0.001, "total_steps": 100_000_000},
+            "params": {"final_coef": 0.001, "total_steps": 130_000_000},
         },
         # ppo
         "gamma": 0.99,
         "clip_range": 0.2,
-        "batch_size": 8192,  # 16384
+        "batch_size": 8192,
         "n_steps": 256,
         "ppo_epochs": 4,
         "total_environment_steps": 300_000_000,
@@ -244,7 +244,7 @@ def get_default_config():
         "validation_interval": 5,
         "validation_episodes": 256,
         # selfplay
-        "opponent_pool": 10,
+        "opponent_pool": 15,
         #
         "architecture_name": "resnet_s",
     }

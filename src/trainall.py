@@ -3,14 +3,7 @@ import wandb
 from train import get_default_config, train_mnk
 
 if __name__ == "__main__":
-    architectures = [
-        "transformer_s",
-        "resnet_s",
-        "cnn_s",
-        "transformer_l",
-        "resnet_l",
-        "cnn_l",
-    ]
+    architectures = ["transformer_s", "resnet_s", "cnn_s"]
 
     for arch in architectures:
         config = get_default_config()
