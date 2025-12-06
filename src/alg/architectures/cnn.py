@@ -90,9 +90,19 @@ class CnnSActorCritic(BaseCnnActorCritic):
         }
 
 
+# class CnnSActorCritic(BaseCnnActorCritic):
+#     def __init__(self, obs_shape, action_dim):
+#         super().__init__(obs_shape, action_dim, channels=[64, 64, 64, 64, 64, 64])
+#         self._architecture_name = "cnn_s2"
+#         self._architecture_params = {
+#             "obs_shape": [int(x) for x in obs_shape],
+#             "action_dim": int(action_dim),
+#         }
+
+
 class CnnLActorCritic(BaseCnnActorCritic):
     def __init__(self, obs_shape, action_dim):
-        super().__init__(obs_shape, action_dim, channels=[128, 128, 128, 128, 128, 128])
+        super().__init__(obs_shape, action_dim, channels=[192, 192, 192, 192, 192, 192])
         self._architecture_name = "cnn_l"
         self._architecture_params = {
             "obs_shape": [int(x) for x in obs_shape],

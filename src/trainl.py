@@ -8,7 +8,7 @@ if __name__ == "__main__":
     for arch in architectures:
         config = get_default_config()
         config["architecture_name"] = arch
-        config["batch_size"] = 4096
+        config["learning_rate"] = 7e-4
 
         if arch == "transformer_l":
             config["entropy_coef"] = 0.1

@@ -101,7 +101,7 @@ class TransformerSActorCritic(BaseTransformerActorCritic):
 
 class TransformerLActorCritic(BaseTransformerActorCritic):
     def __init__(self, obs_shape, action_dim):
-        super().__init__(obs_shape, action_dim, embed_dim=256, num_layers=6, num_heads=8)
+        super().__init__(obs_shape, action_dim, embed_dim=192, num_layers=5, num_heads=6)
         self._architecture_name = "transformer_l"
         self._architecture_params = {
             "obs_shape": [int(x) for x in obs_shape],
