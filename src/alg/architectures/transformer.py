@@ -5,7 +5,7 @@ from ..weight_init import initialize_weights_explicit
 
 
 class BaseTransformerActorCritic(nn.Module):
-    def __init__(self, obs_shape, action_dim, embed_dim=128, num_layers=4, num_heads=4):
+    def __init__(self, obs_shape, action_dim, embed_dim=128, num_layers=4, num_heads=4, head_hidden_dim=256):
         super().__init__()
         c, h, w = obs_shape
         self.action_dim = action_dim
@@ -31,10 +31,10 @@ class BaseTransformerActorCritic(nn.Module):
             nn.Flatten(),
             nn.LayerNorm(2 * num_tokens),
             nn.ReLU(),
-            nn.Linear(2 * num_tokens, 256),
-            nn.LayerNorm(256),
+            nn.Linear(2 * num_tokens, head_hidden_dim),
+            nn.LayerNorm(head_hidden_dim),
             nn.ReLU(),
-            nn.Linear(256, action_dim),
+            nn.Linear(head_hidden_dim, action_dim),
         )
 
         self.value_head = nn.Sequential(
@@ -42,10 +42,10 @@ class BaseTransformerActorCritic(nn.Module):
             nn.Flatten(),
             nn.LayerNorm(1 * num_tokens),
             nn.ReLU(),
-            nn.Linear(1 * num_tokens, 256),
-            nn.LayerNorm(256),
+            nn.Linear(1 * num_tokens, head_hidden_dim),
+            nn.LayerNorm(head_hidden_dim),
             nn.ReLU(),
-            nn.Linear(256, 1),
+            nn.Linear(head_hidden_dim, 1),
             nn.Tanh(),
         )
 

@@ -12,6 +12,14 @@ from alg.architectures.transformer import (
     TransformerSActorCritic,
     TransformerLActorCritic,
 )
+from alg.architectures.configs import (
+    CnnSActorCritic as CnnBSActorCritic,
+    CnnLActorCritic as CnnBLActorCritic,
+    ResNetSActorCritic as ResNetBSActorCritic,
+    ResNetLActorCritic as ResNetBLActorCritic,
+    TransformerSActorCritic as TransformerBSActorCritic,
+    TransformerLActorCritic as TransformerBLActorCritic,
+)
 
 
 ARCHITECTURE_REGISTRY: Dict[str, Callable[..., torch.nn.Module]] = {
@@ -21,6 +29,12 @@ ARCHITECTURE_REGISTRY: Dict[str, Callable[..., torch.nn.Module]] = {
     "resnet_l": ResNetLActorCritic,
     "transformer_s": TransformerSActorCritic,
     "transformer_l": TransformerLActorCritic,
+    "cnn_b_s": CnnBSActorCritic,
+    "cnn_b_l": CnnBLActorCritic,
+    "resnet_b_s": ResNetBSActorCritic,
+    "resnet_b_l": ResNetBLActorCritic,
+    "transformer_b_s": TransformerBSActorCritic,
+    "transformer_b_l": TransformerBLActorCritic,
 }
 
 

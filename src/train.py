@@ -246,7 +246,7 @@ def get_default_config():
         # selfplay
         "opponent_pool": 15,
         #
-        "architecture_name": "resnet_s",
+        "architecture_name": "resnet_b_s",
     }
 
 

@@ -5,7 +5,7 @@ from ..weight_init import initialize_weights_explicit
 
 
 class BaseCnnActorCritic(nn.Module):
-    def __init__(self, obs_shape, action_dim, channels=[64, 64, 64]):
+    def __init__(self, obs_shape, action_dim, channels=[64, 64, 64], head_hidden_dim=256):
         super().__init__()
         self.action_dim = action_dim
 
@@ -36,10 +36,10 @@ class BaseCnnActorCritic(nn.Module):
             nn.Flatten(),
             nn.LayerNorm(actor_flattened_size),
             nn.ReLU(),
-            nn.Linear(actor_flattened_size, 256),
-            nn.LayerNorm(256),
+            nn.Linear(actor_flattened_size, head_hidden_dim),
+            nn.LayerNorm(head_hidden_dim),
             nn.ReLU(),
-            nn.Linear(256, action_dim),
+            nn.Linear(head_hidden_dim, action_dim),
         )
 
         self.critic = nn.Sequential(
@@ -47,10 +47,10 @@ class BaseCnnActorCritic(nn.Module):
             nn.Flatten(),
             nn.LayerNorm(critic_flattened_size),
             nn.ReLU(),
-            nn.Linear(critic_flattened_size, 256),
-            nn.LayerNorm(256),
+            nn.Linear(critic_flattened_size, head_hidden_dim),
+            nn.LayerNorm(head_hidden_dim),
             nn.ReLU(),
-            nn.Linear(256, 1),
+            nn.Linear(head_hidden_dim, 1),
             nn.Tanh(),
         )
 
