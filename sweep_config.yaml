@@ -1,17 +1,13 @@
-program: src/vec_train_mnk.py
-method: bayes
-metric:
-  name: validation/vs_benchmark/score_rate
+program: src/train_short.py
+method: random
 parameters:
   learning_rate:
-    min: 0.00005
-    max: 0.001
+    min: 1e-5
+    max: 2e-3
     distribution: log_uniform_values
   entropy_coef:
     distribution: log_uniform_values
-    min: 1.0e-4 # 0.0001
-    max: 1.0e-2 # 0.01
-  batch_size:
-    values: [64, 256, 1024]
+    min: 0.001
+    max: 0.2
   architecture_name:
-    values: ["transformer_s"]
+    values: ["transformer_b_s", "resnet_b_s", "cnn_b_s"]
