@@ -4,9 +4,7 @@ import torch.optim as optim
 from torch.optim.lr_scheduler import SequentialLR, LinearLR, ConstantLR
 
 
-def create_lr_scheduler(
-    optimizer, warmup_steps, total_steps, num_envs, n_steps, decay=False
-):
+def create_lr_scheduler(optimizer, warmup_steps, total_steps, num_envs, n_steps, decay=False):
     """
     Create learning rate scheduler with warmup and optional decay.
 
@@ -48,7 +46,7 @@ def create_lr_scheduler(
         main = LinearLR(
             optimizer,
             start_factor=1.0,
-            end_factor=0.01,  # Decay to 1% of base LR
+            end_factor=0.1,  # Decay to 10% of base LR
             total_iters=decay_iterations,
         )
     else:
