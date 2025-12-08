@@ -107,8 +107,10 @@ def train_mnk(run):
         try:
             if random.random() < 0.2:
                 opponent = opponent_pool.get_random_opponent()
+                run.log({"training/opponent_source": "historical"}, step=current_env_steps)
             else:
                 opponent = NNPolicy(deepcopy(agent.network))
+                run.log({"training/opponent_source": "current_agent"}, step=current_env_steps)
             train_env.set_opponent(opponent)
 
             metrics = agent.learn(train_env)
