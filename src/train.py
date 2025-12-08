@@ -48,7 +48,12 @@ def create_agent(config, obs_shape, action_dim, hw_config):
     )
 
     lr_scheduler = create_lr_scheduler(
-        optimizer, config.lr_warmup_steps, config.num_envs, config.n_steps
+        optimizer,
+        config.lr_warmup_steps,
+        config.total_environment_steps,
+        config.num_envs,
+        config.n_steps,
+        decay=config.lr_decay,
     )
 
     entropy_scheduler = EntropyScheduler(
@@ -225,6 +230,7 @@ def get_default_config():
         # lr
         "learning_rate": 5e-4,
         "lr_warmup_steps": 5_000_000,
+        "lr_decay": True,
         # entropy
         "entropy_coef": 0.04,
         "entropy_coef_schedule": {

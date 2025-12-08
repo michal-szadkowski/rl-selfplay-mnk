@@ -10,6 +10,7 @@ if __name__ == "__main__":
         "type": "linear",
         "params": {"final_coef": 0.001, "total_steps": 50_000_000},
     }
+    config["lr_decay"] = False
 
     with wandb.init(config=config, project="mnk_b_sweeps") as run:
         train_mnk(run)

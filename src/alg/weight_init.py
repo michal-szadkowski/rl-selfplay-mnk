@@ -27,7 +27,7 @@ def initialize_weights_explicit(modules_to_init, actor_head, critic_head):
             continue
         # .modules() loop is needed here to reach layers inside nn.Sequential
         for submodule in module.modules():
-            if isinstance(submodule, (nn.Conv2d, nn.Linear)):
+            if isinstance(submodule, (nn.Conv1d, nn.Conv2d, nn.Linear)):
                 gain = nn.init.calculate_gain("relu")
                 nn.init.orthogonal_(submodule.weight, gain=gain)
                 if submodule.bias is not None:
