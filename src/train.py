@@ -105,7 +105,7 @@ def train_mnk(run):
     current_env_steps = 0
     for i in range(total_iterations):
         try:
-            if random.random() < 0.2:
+            if random.random() < 0.125:
                 opponent = opponent_pool.get_random_opponent()
                 run.log({"training/opponent_source": "historical"}, step=current_env_steps)
             else:
