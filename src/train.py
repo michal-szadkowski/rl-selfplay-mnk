@@ -232,12 +232,12 @@ def get_default_config():
         # lr
         "learning_rate": 5e-4,
         "lr_warmup_steps": 5_000_000,
-        "lr_decay": True,
+        "lr_decay": False,
         # entropy
         "entropy_coef": 0.04,
         "entropy_coef_schedule": {
             "type": "linear",
-            "params": {"final_coef": 0.001, "total_steps": 200_000_000},
+            "params": {"final_coef": 0.001, "total_steps": 130_000_000},
         },
         # ppo
         "gamma": 0.99,
