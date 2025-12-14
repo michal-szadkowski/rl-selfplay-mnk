@@ -17,7 +17,7 @@ if __name__ == "__main__":
         config["architecture_name"] = arch
 
         if "transformer" in arch:
-            config["entropy_coef"] = 0.12
+            config["entropy_coef"] = 0.10
             config["learning_rate"] = 12e-4
         elif "resnet" in arch:
             config["entropy_coef"] = 0.05

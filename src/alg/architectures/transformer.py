@@ -51,10 +51,12 @@ class BaseTransformerActorCritic(nn.Module):
 
         # Initialize parameters that won't be touched by the function
         nn.init.normal_(self.pos_embed, std=0.02)
+        nn.init.normal_(self.cell_embed.weight, mean=0.0, std=0.02)
+        nn.init.constant_(self.cell_embed.bias, 0.0)
 
         # Explicitly pass only what we want to initialize
         initialize_weights_explicit(
-            modules_to_init=[self.cell_embed, self.transformer],
+            modules_to_init=[],
             actor_head=self.policy_head,
             critic_head=self.value_head,
         )
