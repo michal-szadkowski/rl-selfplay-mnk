@@ -237,7 +237,7 @@ def get_default_config():
         "entropy_coef": 0.04,
         "entropy_coef_schedule": {
             "type": "linear",
-            "params": {"final_coef": 0.001, "total_steps": 100_000_000},
+            "params": {"final_coef": 0.001, "total_steps": 125_000_000},
         },
         # ppo
         "gamma": 0.99,
