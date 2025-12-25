@@ -71,13 +71,21 @@ class PPOAgent:
         self.lr_scheduler = lr_scheduler
         self.entropy_scheduler = entropy_scheduler
 
+        self._last_obs = None
+        self._current_ep_reward = None
+        self._current_ep_len = None
+
     def learn(self, vec_env):
         rollout_start_time = time.time()
 
-        obs, _ = vec_env.reset()
+        if self._last_obs is None:
+            self._last_obs, _ = vec_env.reset()
+            self._current_ep_reward = torch.zeros(self.num_envs, device=self.device)
+            self._current_ep_len = torch.zeros(self.num_envs, device=self.device)
 
-        current_ep_reward = torch.zeros(self.num_envs, device=self.device)
-        current_ep_len = torch.zeros(self.num_envs, device=self.device)
+        obs = self._last_obs
+        current_ep_reward = self._current_ep_reward
+        current_ep_len = self._current_ep_len
 
         finished_ep_rewards = []
         finished_ep_lengths = []
@@ -112,6 +120,8 @@ class PPOAgent:
                 current_ep_len[done_indices] = 0
 
             obs = next_obs
+
+        self._last_obs = obs
 
         rollout_end_time = time.time()
         rollout_time = rollout_end_time - rollout_start_time
