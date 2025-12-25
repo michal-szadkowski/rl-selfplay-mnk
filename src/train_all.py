@@ -15,7 +15,7 @@ if __name__ == "__main__":
         if "transformer" in arch:
             config["entropy_coef_schedule"]["params"]["final_coef"] = 0.01
             config["entropy_coef"] = 0.10
-            config["learning_rate"] = 15e-4
+            config["learning_rate"] = 12e-4
         elif "resnet" in arch:
             config["entropy_coef_schedule"]["params"]["final_coef"] = 0.001
             config["entropy_coef"] = 0.05
