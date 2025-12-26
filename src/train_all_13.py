@@ -15,10 +15,10 @@ if __name__ == "__main__":
     for arch in architectures:
         config = get_default_config()
         config["architecture_name"] = arch
-        config["mnk"] = (15, 15, 5)
+        config["mnk"] = (13, 13, 5)
         config["total_environment_steps"] = 600_000_000
         config["entropy_coef_schedule"]["params"]["total_steps"] = 300_000_000
-        config["n_steps"] = 512
+        config["n_steps"] = 256
         config["batch_size"] = 4096
 
         if "transformer" in arch:
@@ -37,8 +37,8 @@ if __name__ == "__main__":
         with wandb.init(
             config=config,
             project="mnk_b",
-            group="main_run_15x15_board",
-            name=f"run_{arch}_15x15",
-            tags=[arch, "main_experiment", "15x15"],
+            group="main_run_13x13_board",
+            name=f"run_{arch}_13x13",
+            tags=[arch, "13x13"],
         ) as run:
             train_mnk(run)
