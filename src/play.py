@@ -36,6 +36,7 @@ class HumanPolicy(Policy):
 def play_game(env: TorchVectorMnkEnv, p1_policy: Policy, p2_policy: Policy):
     obs = env.reset()
     policies = [p1_policy, p2_policy]  # 0=Black, 1=White
+    move_history = []
 
     print("\n--- New Game ---")
     print_board(env)
@@ -57,7 +58,9 @@ def play_game(env: TorchVectorMnkEnv, p1_policy: Policy, p2_policy: Policy):
             action = policy.act(obs)
         else:
             with torch.no_grad():
-                action = policy.act(ai_obs, deterministic=True)
+                action = policy.act(ai_obs)
+
+        move_history.append(action.item())
 
         obs, reward, done_tensor = env.step(action)
 
@@ -77,6 +80,53 @@ def play_game(env: TorchVectorMnkEnv, p1_policy: Policy, p2_policy: Policy):
         print("Result: It's a draw!")
     else:
         print(f"Result: Game ended with reward {reward_val}")
+
+    print(f"\nGame Export: {','.join(map(str, move_history))}")
+
+
+def replay_game(env: TorchVectorMnkEnv, move_str: str):
+    print(f"\n--- Replaying Game ---")
+    try:
+        moves = [int(m) for m in move_str.split(",") if m.strip()]
+    except ValueError:
+        print("Invalid move string format. Expected comma-separated integers.")
+        return
+
+    obs = env.reset()
+    print_board(env)
+
+    for i, move in enumerate(moves):
+        current_player = env.current_player[0].item()
+        player_name = "Black" if current_player == 0 else "White"
+        print(f"\n--- Move {i+1}: {player_name} plays {move} ---")
+
+        # Check legality roughly (though env usually handles this)
+        action_mask = obs["action_mask"][0]
+        if not action_mask[move]:
+            print(f"WARNING: Move {move} seems illegal in this state!")
+
+        action = torch.tensor([move], device=env.device)
+        obs, reward, done_tensor = env.step(action)
+        print_board(env)
+
+        if done_tensor[0].item():
+            print("\n--- Game Over during replay ---")
+            reward_val = reward[0].item()
+            if reward_val == 1.0:
+                winner = "Black" if current_player == 0 else "White"
+                print(f"Result: Player {winner} wins!")
+            elif reward_val == 0.0:
+                print("Result: It's a draw!")
+            else:
+                print(f"Result: Game ended with reward {reward_val}")
+
+            if i < len(moves) - 1:
+                print(
+                    f"Warning: Game ended but there are {len(moves) - 1 - i} moves left in the record."
+                )
+            return
+
+    print("\n--- Replay finished ---")
 
 
 def print_board(env: TorchVectorMnkEnv):
@@ -137,24 +187,35 @@ def main():
     parser.add_argument(
         "--p1",
         type=str,
-        required=True,
         help="Player 1 (Black): 'human', 'random', or path",
     )
     parser.add_argument(
         "--p2",
         type=str,
-        required=True,
         help="Player 2 (White): 'human', 'random', or path",
     )
     parser.add_argument("--m", type=int, default=9)
     parser.add_argument("--n", type=int, default=9)
     parser.add_argument("--k", type=int, default=5)
+    parser.add_argument(
+        "--import_game", type=str, help="Import and replay a game from a move string."
+    )
 
     args = parser.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     env = TorchVectorMnkEnv(m=args.m, n=args.n, k=args.k, num_envs=1, device=device)
+
+    if args.import_game:
+        replay_game(env, args.import_game)
+        return
+
+    if not args.p1 or not args.p2:
+        parser.error(
+            "the following arguments are required: --p1, --p2 (unless --import_game is used)"
+        )
+
     action_dim = args.m * args.n
 
     def load_policy_from_arg(policy_arg: str) -> Policy:

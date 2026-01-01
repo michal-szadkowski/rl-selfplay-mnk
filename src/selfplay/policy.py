@@ -47,10 +47,7 @@ class NNPolicy(Policy):
             dist, _ = self.model(observation, action_mask)
 
             if deterministic:
-                if hasattr(dist, "mode"):
-                    action = dist.mode
-                else:
-                    action = torch.argmax(dist.logits, dim=1)
+                action = torch.argmax(dist.logits, dim=1)
             else:
                 action = dist.sample()
 
