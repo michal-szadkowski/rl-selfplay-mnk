@@ -15,6 +15,7 @@ dependencies = [
     "pettingzoo>=1.25.0",
     "plotly>=6.3.1",
     "pygame>=2.6.1",
+    "scipy>=1.16.3",
     "seaborn>=0.13.2",
     "swig>=4.3.1",
     "torch==2.7",
