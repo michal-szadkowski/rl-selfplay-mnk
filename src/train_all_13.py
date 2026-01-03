@@ -16,9 +16,8 @@ if __name__ == "__main__":
         config = get_default_config()
         config["architecture_name"] = arch
         config["mnk"] = (13, 13, 5)
-        config["total_environment_steps"] = 600_000_000
+        config["total_environment_steps"] = 700_000_000
         config["entropy_coef_schedule"]["params"]["total_steps"] = 300_000_000
-        config["n_steps"] = 256
         config["batch_size"] = 4096
 
         if "transformer" in arch:

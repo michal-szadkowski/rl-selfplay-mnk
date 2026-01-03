@@ -105,7 +105,7 @@ def train_mnk(run):
     current_env_steps = 0
     for i in range(total_iterations):
         try:
-            if random.random() < 0.125:
+            if random.random() < 0.15:
                 opponent = opponent_pool.get_random_opponent()
                 run.log({"training/opponent_source": "historical"}, step=current_env_steps)
             else:
@@ -119,7 +119,7 @@ def train_mnk(run):
 
             log_training_metrics(run, metrics, i, current_env_steps, agent.entropy_coef, agent)
 
-            if i % 20 == 0 and metrics.mean_reward:
+            if i % 20 == 0:
                 opponent_pool.add_opponent(NNPolicy(deepcopy(agent.network)))
 
             if i > 0 and i % run.config.validation_interval == 0:
@@ -246,13 +246,13 @@ def get_default_config():
         "n_steps": 256,
         "ppo_epochs": 4,
         "total_environment_steps": 300_000_000,
-        "num_envs": 1024,
+        "num_envs": 384,
         # validation
         "benchmark_update_threshold_score": 0.60,
         "validation_interval": 5,
         "validation_episodes": 256,
         # selfplay
-        "opponent_pool": 15,
+        "opponent_pool": 20,
         #
         "architecture_name": "resnet_b_s",
     }
